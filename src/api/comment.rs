@@ -32,7 +32,28 @@ pub struct CommentItem {
     pub like: Option<i32>,
     pub member: Option<CommentMember>,
     pub content: Option<CommentContent>,
+    #[serde(default)]
+    pub reply_control: Option<ReplyControl>,
     pub replies: Option<Vec<CommentItem>>,
+}
+
+/// Moderation / display metadata attached to a comment by the server.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReplyControl {
+    /// IP location shown under the comment, e.g. "广东" (None for older posts).
+    pub location: Option<String>,
+    #[serde(default)]
+    pub up_like: Option<bool>,
+}
+
+impl CommentItem {
+    /// IP location text, e.g. "广东" or None.
+    pub fn ip_location(&self) -> Option<&str> {
+        self.reply_control
+            .as_ref()
+            .and_then(|c| c.location.as_deref())
+            .filter(|s| !s.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,6 +124,18 @@ impl CommentItem {
 
     pub fn reply_count(&self) -> i32 {
         self.rcount.unwrap_or(0)
+    }
+
+    /// Absolute local time like the web player: "2024-03-15 23:51".
+    pub fn format_time_absolute(&self) -> String {
+        use chrono::TimeZone;
+        match self.ctime {
+            Some(ts) => match chrono::Local.timestamp_opt(ts, 0) {
+                chrono::LocalResult::Single(t) => t.format("%Y-%m-%d %H:%M").to_string(),
+                _ => String::new(),
+            },
+            None => String::new(),
+        }
     }
 }
 

@@ -100,6 +100,12 @@ pub enum AppAction {
     LoadMoreComments,
     /// Toggle comment replies expansion
     ToggleCommentReplies,
+    /// Reload the comment list with a new sort order (0=hot, 1=newest)
+    ReloadComments {
+        oid: i64,
+        sort: i32,
+    },
+
     /// Toggle replies of the comment at `comment_index` (web-style list)
     ToggleCommentRepliesAt {
         comment_index: usize,

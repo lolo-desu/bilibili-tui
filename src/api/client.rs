@@ -993,11 +993,18 @@ impl ApiClient {
     }
 
     // Comments API
-    pub async fn get_comments(&self, oid: i64, pn: i32) -> Result<super::comment::CommentData> {
+    /// `sort`: 0 = by time (newest first), 1 = by heat (hot first), 2 = mixed.
+    pub async fn get_comments_sorted(
+        &self,
+        oid: i64,
+        pn: i32,
+        sort: i32,
+    ) -> Result<super::comment::CommentData> {
         let url = format!(
-            "{}/x/v2/reply?type=1&oid={}&sort=1&ps=20&pn={}",
+            "{}/x/v2/reply?type=1&oid={}&sort={}&ps=20&pn={}",
             BilibiliApiDomain::Main.as_str(),
             oid,
+            sort,
             pn
         );
 
@@ -1007,6 +1014,11 @@ impl ApiClient {
             replies: None,
             hots: None,
         }))
+    }
+
+    /// Comments sorted by heat (default view).
+    pub async fn get_comments(&self, oid: i64, pn: i32) -> Result<super::comment::CommentData> {
+        self.get_comments_sorted(oid, pn, 1).await
     }
 
     // Dynamic Comments API

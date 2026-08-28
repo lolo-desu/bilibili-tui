@@ -668,6 +668,18 @@ impl App {
                     page.load_more_comments(&client).await;
                 }
             }
+            AppAction::ReloadComments { oid, sort } => {
+                if let Page::VideoDetail(page) = &mut self.current_page
+                    && page.aid == oid
+                {
+                    let req_id = self.next_request_id("comments_sorted");
+                    self.send_network_command(network::NetworkCommand::LoadCommentsSorted {
+                        req_id,
+                        oid,
+                        sort,
+                    });
+                }
+            }
             AppAction::ToggleCommentReplies => {
                 if let Page::VideoDetail(page) = &mut self.current_page {
                     let client = self.api_client.clone();

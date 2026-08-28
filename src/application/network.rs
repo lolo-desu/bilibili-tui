@@ -88,6 +88,11 @@ pub enum NetworkCommand {
         bvid: String,
         aid: i64,
     },
+    LoadCommentsSorted {
+        req_id: u64,
+        oid: i64,
+        sort: i32,
+    },
     LoadUpPage {
         req_id: u64,
         mid: i64,
@@ -202,6 +207,13 @@ pub enum NetworkEvent {
         comments: Vec<CommentItem>,
         has_more_comments: bool,
         related_videos: Vec<RelatedVideoItem>,
+    },
+    CommentsSortedLoaded {
+        req_id: u64,
+        oid: i64,
+        comments: Vec<CommentItem>,
+        total: i64,
+        has_more: bool,
     },
     UpPageLoaded {
         req_id: u64,
@@ -355,6 +367,7 @@ impl NetworkCommand {
             Self::LoadArticle { .. } => "article_detail",
             Self::LoadLiveInit { .. } | Self::LoadLiveMore { .. } => "live",
             Self::LoadVideoDetail { .. } => "video_detail",
+            Self::LoadCommentsSorted { .. } => "comments_sorted",
             Self::LoadUpPage { .. } | Self::LoadUpVideos { .. } => "up",
             Self::LoadDynamicDetail { .. } => "dynamic_detail",
             Self::LoadBangumiIndex { .. } | Self::LoadBangumiDetail { .. } => "bangumi",
@@ -794,6 +807,26 @@ async fn handle_command(api_client: Arc<ApiClient>, command: NetworkCommand) -> 
                     rooms,
                 },
                 Err(e) => failed(req_id, "live_more", e),
+            }
+        }
+        NetworkCommand::LoadCommentsSorted { req_id, oid, sort } => {
+            let data = match api_client.get_comments_sorted(oid, 1, sort).await {
+                Ok(data) => data,
+                Err(e) => return failed(req_id, "comments_sorted", e),
+            };
+            let comments = data.replies.unwrap_or_default();
+            let total = data
+                .page
+                .as_ref()
+                .and_then(|p| p.acount.or(p.count))
+                .unwrap_or(0);
+            let has_more = total > comments.len() as i32;
+            NetworkEvent::CommentsSortedLoaded {
+                req_id,
+                oid,
+                comments,
+                total: total as i64,
+                has_more,
             }
         }
         NetworkCommand::LoadVideoDetail { req_id, bvid, aid } => {

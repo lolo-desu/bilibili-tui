@@ -181,6 +181,25 @@ impl App {
                     }
                 }
             }
+            network::NetworkEvent::CommentsSortedLoaded {
+                req_id,
+                oid,
+                comments,
+                total,
+                has_more,
+            } => {
+                if !self.is_latest_request("comments_sorted", req_id) {
+                    return;
+                }
+                if let Page::VideoDetail(page) = &mut self.current_page {
+                    if page.aid != oid {
+                        return;
+                    }
+                    page.comment_list.set_comments(comments, total);
+                    page.comment_list.has_more = has_more;
+                    page.comment_page = 1;
+                }
+            }
             network::NetworkEvent::VideoDetailLoaded {
                 req_id,
                 bvid,

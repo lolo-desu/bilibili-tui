@@ -1,7 +1,7 @@
 //! Video detail page showing video info, comments, and related videos
 
-use super::comment_list::CommentIntent;
 use super::comment_list::CommentList;
+use super::comment_list::{CommentIntent, EntryKind};
 use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
 use super::{Component, Theme, shortcut_footer};
@@ -121,6 +121,7 @@ impl VideoDetailPage {
         // Load video info
         match api_client.get_video_info(&self.bvid).await {
             Ok(info) => {
+                self.comment_list.uploader_mid = Some(info.owner.mid);
                 self.video_info = Some(info);
             }
             Err(e) => {
@@ -675,11 +676,13 @@ impl Component for VideoDetailPage {
                 [
                     (
                         format!("{}/{}", keys.nav_up, keys.nav_down),
-                        "选择评论".into(),
+                        "选择".into(),
                         theme.fg_accent,
                     ),
-                    (keys.confirm.clone(), "展开/点赞".into(), theme.success),
+                    ("Space".into(), "展开回复".into(), theme.success),
+                    ("r".into(), "点赞".into(), theme.warning),
                     (keys.comment.clone(), "评论".into(), theme.info),
+                    ("t".into(), "最热/最新".into(), theme.info),
                     (keys.play.clone(), "播放".into(), theme.success),
                     (keys.back.clone(), "返回".into(), theme.info),
                 ],
@@ -822,12 +825,53 @@ impl Component for VideoDetailPage {
             }
             return Some(AppAction::None);
         }
+        if key == KeyCode::Char(' ') && self.focus == DetailFocus::Comments {
+            // Space: expand/collapse replies of the selected comment
+            if let Some(entry) = self.comment_list.selected_entry_info() {
+                match entry.kind {
+                    EntryKind::Comment => {
+                        return Some(AppAction::ToggleCommentRepliesAt {
+                            comment_index: entry.comment_index,
+                        });
+                    }
+                    EntryKind::Toggle => {
+                        if let Some(intent) = self.comment_list.activate_selected() {
+                            return comment_intent_to_action(intent, self.aid);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return Some(AppAction::None);
+        }
+        if key == KeyCode::Char('t') && self.focus == DetailFocus::Comments {
+            // Toggle hot/newest sort and reload comments
+            self.comment_list.sort_newest = !self.comment_list.sort_newest;
+            self.comment_list.reset_selection();
+            self.comment_page = 1;
+            self.loading_more_comments = false;
+            return Some(AppAction::ReloadComments {
+                oid: self.aid,
+                sort: if self.comment_list.sort_newest { 0 } else { 1 },
+            });
+        }
         if keys.matches_confirm(key) {
             match self.focus {
                 DetailFocus::Comments => {
-                    // Activate: toggle replies / load more / like
-                    if let Some(intent) = self.comment_list.activate_selected() {
-                        return comment_intent_to_action(intent, self.aid);
+                    // Enter: expand/collapse replies on a comment card
+                    if let Some(entry) = self.comment_list.selected_entry_info() {
+                        match entry.kind {
+                            EntryKind::Comment => {
+                                return Some(AppAction::ToggleCommentRepliesAt {
+                                    comment_index: entry.comment_index,
+                                });
+                            }
+                            _ => {
+                                if let Some(intent) = self.comment_list.activate_selected() {
+                                    return comment_intent_to_action(intent, self.aid);
+                                }
+                            }
+                        }
                     }
                 }
                 DetailFocus::Episodes => {

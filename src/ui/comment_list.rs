@@ -33,6 +33,8 @@ pub enum EntryKind {
     Reply,
     /// "展开/收起回复" or "加载更多回复" toggle row.
     Toggle,
+    /// Horizontal rule between top-level cards (not selectable).
+    Separator,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -225,8 +227,10 @@ fn level_color(level: i32, theme: &Theme) -> Color {
     }
 }
 
-const AVATAR_COLS: u16 = 3; // avatar cell width, in terminal columns
+const AVATAR_COLS: u16 = 4; // avatar cell width, in terminal columns
 const AVATAR_ROWS: u16 = 2; // avatar cell height (≈square in cells)
+const GAP_COLS: u16 = 1; // gap between avatar and text column
+const CARD_TRAIL_BLANK: u16 = 2; // blank rows after each card (web-like breathing room)
 
 /// Web-style comment list widget + state.
 pub struct CommentList {
@@ -248,6 +252,10 @@ pub struct CommentList {
     pub liked: HashSet<i64>,
     /// Local like-count deltas applied on top of API counts.
     pub like_deltas: HashMap<i64, i64>,
+    /// Comment sort: false = hot (default), true = newest.
+    pub sort_newest: bool,
+    /// Video uploader mid for the UP badge (None = no badges).
+    pub uploader_mid: Option<i64>,
     /// Comment currently selected (top-level index).
     pub selected: usize,
     /// Selected entry index into `entries` (comment / reply / toggle row).
@@ -275,6 +283,8 @@ impl CommentList {
             loading_more: false,
             liked: HashSet::new(),
             like_deltas: HashMap::new(),
+            sort_newest: false,
+            uploader_mid: None,
             selected: 0,
             selected_entry: 0,
             scroll: 0,
@@ -392,8 +402,19 @@ impl CommentList {
         let content_width = width.saturating_sub(AVATAR_COLS + 1).max(8) as usize;
 
         for (ci, comment) in self.comments.iter().enumerate() {
+            // separator line above each card (except the very first)
+            if ci > 0 {
+                entries.push(Entry {
+                    kind: EntryKind::Separator,
+                    comment_index: ci,
+                    reply_index: 0,
+                    start_line: line,
+                    height: 1,
+                });
+                line += 1;
+            }
             let msg_lines = wrap_lines(comment.message(), content_width).len().max(1);
-            let card_height = 1 /* header */ + msg_lines + 1 /* actions */ + 1 /* blank */;
+            let card_height = 1 + msg_lines + 1 + CARD_TRAIL_BLANK as usize; // header+msg+actions+blank
             entries.push(Entry {
                 kind: EntryKind::Comment,
                 comment_index: ci,
@@ -469,33 +490,43 @@ impl CommentList {
 
     fn clamp_scroll(&mut self, viewport: usize) {
         let viewport = viewport.max(1);
-        if let Some(entry) = self.entries.get(self.visible_entry_index()) {
-            // keep selected entry fully visible
+        if let Some(entry) = self.entries.get(self.selected_entry) {
             let sel_start = entry.start_line;
             let sel_end = entry.end_line().saturating_sub(1);
-            if sel_start < self.scroll {
-                self.scroll = sel_start;
-            } else if sel_end >= self.scroll + viewport {
-                self.scroll = sel_end + 1 - viewport;
+            // Anchor: keep the selected entry around the lower third so the
+            // user can see what is coming next (web-player behaviour).
+            // Only starts scrolling once the selection would leave that zone;
+            // at the very top/bottom of the list the viewport clamps naturally.
+            let anchor_line = sel_end + 1;
+            let max_scroll = self.total_lines.saturating_sub(viewport);
+            // desired scroll so that selection bottom sits at ~2/3 viewport
+            let prefer_bottom = viewport * 2 / 3;
+            if anchor_line > self.scroll + prefer_bottom {
+                // moving down: bring selection bottom to the anchor line
+                self.scroll = (anchor_line - prefer_bottom).min(max_scroll);
+            } else if sel_start < self.scroll {
+                // moving up: keep the whole entry visible at the top
+                self.scroll = sel_start.min(max_scroll);
             }
+            self.scroll = self.scroll.min(max_scroll);
         }
-        let max_scroll = self.total_lines.saturating_sub(viewport);
-        self.scroll = self.scroll.min(max_scroll);
-    }
-
-    /// Index into `entries` of the currently selected entry.
-    fn visible_entry_index(&self) -> usize {
-        self.selected_entry
     }
 
     /// Move selection up; returns false when already at the top.
     pub fn move_up(&mut self) -> bool {
-        if self.selected_entry == 0 || self.entries.is_empty() {
+        if self.entries.is_empty() {
             return false;
         }
-        self.selected_entry -= 1;
-        self.sync_selected_comment();
-        true
+        let mut idx = self.selected_entry;
+        while idx > 0 {
+            idx -= 1;
+            if self.entries[idx].kind != EntryKind::Separator {
+                self.selected_entry = idx;
+                self.sync_selected_comment();
+                return true;
+            }
+        }
+        false
     }
 
     /// Move selection down; returns intents (load-more) when nearing bottom.
@@ -503,13 +534,17 @@ impl CommentList {
         if self.entries.is_empty() {
             return None;
         }
-        if self.selected_entry + 1 < self.entries.len() {
-            self.selected_entry += 1;
-            self.sync_selected_comment();
-            // near bottom: request more comments
-            if self.selected_entry + 2 >= self.entries.len() && self.has_more && !self.loading_more
-            {
-                return Some(CommentIntent::LoadMoreComments);
+        let mut idx = self.selected_entry;
+        while idx + 1 < self.entries.len() {
+            idx += 1;
+            if self.entries[idx].kind != EntryKind::Separator {
+                self.selected_entry = idx;
+                self.sync_selected_comment();
+                // near bottom: request more comments
+                if idx + 2 >= self.entries.len() && self.has_more && !self.loading_more {
+                    return Some(CommentIntent::LoadMoreComments);
+                }
+                return None;
             }
         }
         None
@@ -531,6 +566,7 @@ impl CommentList {
     pub fn activate_selected(&self) -> Option<CommentIntent> {
         let entry = self.entries.get(self.selected_entry)?;
         match entry.kind {
+            EntryKind::Separator => None,
             EntryKind::Comment => Some(CommentIntent::Like {
                 comment_index: entry.comment_index,
                 reply_index: None,
@@ -703,6 +739,21 @@ impl CommentList {
                 EntryKind::Toggle => {
                     self.draw_toggle_row(frame, area, row, entry, theme, is_selected, sel_style);
                 }
+                EntryKind::Separator => {
+                    let rule = Line::from(vec![Span::styled(
+                        "─".repeat(area.width.saturating_sub(2) as usize),
+                        Style::default().fg(theme.border_subtle),
+                    )]);
+                    frame.render_widget(
+                        Paragraph::new(rule),
+                        Rect {
+                            x: area.x + 1,
+                            y: row,
+                            width: area.width.saturating_sub(2),
+                            height: 1,
+                        },
+                    );
+                }
             }
         }
 
@@ -723,36 +774,46 @@ impl CommentList {
         is_selected: bool,
         sel_style: Style,
     ) {
-        let content_width = area.width.saturating_sub(AVATAR_COLS + 1).max(8) as usize;
-        let x_text = area.x + AVATAR_COLS + 1;
-        let text_width = area.width.saturating_sub(AVATAR_COLS + 1);
+        let text_x = area.x + AVATAR_COLS + GAP_COLS;
+        let text_width = area.width.saturating_sub(AVATAR_COLS + GAP_COLS);
+        let content_width = text_width.saturating_sub(1) as usize;
 
-        // Header: username + level + time
+        // Header row: 昵称 [UP] (web puts name at top; level badge next)
         let level = comment
             .member
             .as_ref()
             .and_then(|m| m.level_info.as_ref())
             .and_then(|l| l.current_level)
             .unwrap_or(0);
-        let name = truncate_width(comment.author_name(), content_width.saturating_sub(12));
-        let mut header_spans = vec![
-            Span::styled(
-                name,
+        let is_up = self.uploader_mid.is_some()
+            && comment
+                .member
+                .as_ref()
+                .and_then(|m| m.mid.clone())
+                .and_then(|mid| mid.parse::<i64>().ok())
+                == self.uploader_mid;
+        let name = truncate_width(
+            comment.author_name(),
+            text_width.saturating_sub(12) as usize,
+        );
+        let mut header_spans = vec![Span::styled(
+            name,
+            Style::default()
+                .fg(theme.bilibili_blue)
+                .add_modifier(Modifier::BOLD),
+        )];
+        if is_up {
+            header_spans.push(Span::styled(
+                format!(" {} ", icons::STAR),
                 Style::default()
-                    .fg(theme.bilibili_blue)
+                    .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" LV{}", level),
-                Style::default().fg(level_color(level, theme)),
-            ),
-            Span::styled(
-                format!("  {}", comment.format_time()),
-                Style::default().fg(theme.fg_muted),
-            ),
-        ];
-        // UP badge: comment author == video uploader (mid match) is not
-        // tracked here; badge hooks remain for future use.
+            ));
+        }
+        header_spans.push(Span::styled(
+            format!(" LV{}", level),
+            Style::default().fg(level_color(level, theme)),
+        ));
         let header = Line::from(
             header_spans
                 .drain(..)
@@ -762,7 +823,7 @@ impl CommentList {
         frame.render_widget(
             Paragraph::new(header),
             Rect {
-                x: x_text,
+                x: text_x,
                 y: row,
                 width: text_width,
                 height: 1,
@@ -783,17 +844,17 @@ impl CommentList {
                 span = span.style(sel_style);
             }
             frame.render_widget(
-                Paragraph::new(Line::from(vec![Span::raw(" "), span])),
+                Paragraph::new(Line::from(vec![span])),
                 Rect {
-                    x: x_text.saturating_sub(1),
+                    x: text_x,
                     y,
-                    width: text_width + 1,
+                    width: text_width,
                     height: 1,
                 },
             );
         }
 
-        // Action row: like · reply count · location placeholder
+        // Action row: 时间 · IP属地 · 点赞 · 回复数 (web order)
         let action_y = row + 1 + lines.len() as u16;
         if action_y < area.bottom() {
             let liked = self.is_liked(comment.rpid);
@@ -807,27 +868,37 @@ impl CommentList {
             } else {
                 theme.fg_muted
             };
-            let reply_info = if comment.reply_count() > 0 {
-                format!("  {} {} 条回复", icons::COMMENT, comment.reply_count())
-            } else {
-                String::new()
-            };
-            let action = Line::from(vec![
-                Span::raw(" "),
-                Span::styled(like_icon, Style::default().fg(like_color)),
-                Span::styled(
-                    format!(" {} ", format_count(self.like_count(comment))),
-                    Style::default().fg(like_color),
-                ),
-                Span::styled(reply_info, Style::default().fg(theme.fg_muted)),
-            ])
-            .style(sel_style);
+            let mut action_spans = vec![Span::styled(
+                comment.format_time_absolute(),
+                Style::default().fg(theme.fg_muted),
+            )];
+            if let Some(loc) = comment.ip_location() {
+                action_spans.push(Span::styled(
+                    format!(" · IP{}", loc),
+                    Style::default().fg(theme.fg_muted),
+                ));
+            }
+            action_spans.push(Span::styled(
+                format!("  {} ", like_icon),
+                Style::default().fg(like_color),
+            ));
+            action_spans.push(Span::styled(
+                format_count(self.like_count(comment)),
+                Style::default().fg(like_color),
+            ));
+            if comment.reply_count() > 0 {
+                action_spans.push(Span::styled(
+                    format!("  {} {} 条回复", icons::COMMENT, comment.reply_count()),
+                    Style::default().fg(theme.fg_muted),
+                ));
+            }
+            let action = Line::from(action_spans).style(sel_style);
             frame.render_widget(
                 Paragraph::new(action),
                 Rect {
-                    x: x_text.saturating_sub(1),
+                    x: text_x,
                     y: action_y,
-                    width: text_width + 1,
+                    width: text_width,
                     height: 1,
                 },
             );
@@ -845,38 +916,45 @@ impl CommentList {
         is_selected: bool,
         sel_style: Style,
     ) {
-        let content_width = area.width.saturating_sub(AVATAR_COLS + 2).max(8) as usize;
-        let indent = AVATAR_COLS + 1;
-        let x_text = area.x + indent + 1;
-        let text_width = area.width.saturating_sub(indent + 1);
+        // Replies indent under the parent's text column (web style)
+        let text_x = area.x + AVATAR_COLS + GAP_COLS + 2;
+        let text_width = area.width.saturating_sub(AVATAR_COLS + GAP_COLS + 2);
+        let content_width = text_width.saturating_sub(1) as usize;
 
-        // Header
+        // Header: name LV (time moves to action row like web)
         let level = reply
             .member
             .as_ref()
             .and_then(|m| m.level_info.as_ref())
             .and_then(|l| l.current_level)
             .unwrap_or(0);
-        let name = truncate_width(reply.author_name(), content_width.saturating_sub(12));
-        let header = Line::from(vec![
-            Span::styled(icons::REPLY_ARROW, Style::default().fg(theme.fg_muted)),
-            Span::raw(" "),
-            Span::styled(
-                name,
+        let is_up = self.uploader_mid.is_some()
+            && reply
+                .member
+                .as_ref()
+                .and_then(|m| m.mid.clone())
+                .and_then(|mid| mid.parse::<i64>().ok())
+                == self.uploader_mid;
+        let name = truncate_width(reply.author_name(), content_width.saturating_sub(10));
+        let mut header_spans = vec![Span::styled(
+            name,
+            Style::default()
+                .fg(theme.bilibili_cyan)
+                .add_modifier(Modifier::BOLD),
+        )];
+        if is_up {
+            header_spans.push(Span::styled(
+                format!(" {} ", icons::STAR),
                 Style::default()
-                    .fg(theme.bilibili_cyan)
+                    .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!(" LV{}", level),
-                Style::default().fg(level_color(level, theme)),
-            ),
-            Span::styled(
-                format!("  {}", reply.format_time()),
-                Style::default().fg(theme.fg_muted),
-            ),
-        ])
-        .style(if is_selected {
+            ));
+        }
+        header_spans.push(Span::styled(
+            format!(" LV{}", level),
+            Style::default().fg(level_color(level, theme)),
+        ));
+        let header = Line::from(header_spans).style(if is_selected {
             sel_style
         } else {
             Style::default()
@@ -884,9 +962,9 @@ impl CommentList {
         frame.render_widget(
             Paragraph::new(header),
             Rect {
-                x: x_text - 2,
+                x: text_x,
                 y: row,
-                width: text_width + 2,
+                width: text_width,
                 height: 1,
             },
         );
@@ -899,7 +977,7 @@ impl CommentList {
                 break;
             }
             let span = Span::styled(line_text.clone(), Style::default().fg(theme.fg_primary));
-            let line = Line::from(vec![Span::raw("  "), span]).style(if is_selected {
+            let line = Line::from(vec![span]).style(if is_selected {
                 sel_style
             } else {
                 Style::default()
@@ -907,15 +985,15 @@ impl CommentList {
             frame.render_widget(
                 Paragraph::new(line),
                 Rect {
-                    x: x_text - 2,
+                    x: text_x,
                     y,
-                    width: text_width + 2,
+                    width: text_width,
                     height: 1,
                 },
             );
         }
 
-        // Action row: like only
+        // Action row: 时间 · IP属地 · 点赞
         let action_y = row + 1 + lines.len() as u16;
         if action_y < area.bottom() {
             let liked = self.is_liked(reply.rpid);
@@ -929,15 +1007,25 @@ impl CommentList {
             } else {
                 theme.fg_muted
             };
-            let action = Line::from(vec![
-                Span::raw("  "),
-                Span::styled(like_icon, Style::default().fg(like_color)),
-                Span::styled(
-                    format!(" {}", format_count(self.like_count(reply))),
-                    Style::default().fg(like_color),
-                ),
-            ])
-            .style(if is_selected {
+            let mut action_spans = vec![Span::styled(
+                reply.format_time_absolute(),
+                Style::default().fg(theme.fg_muted),
+            )];
+            if let Some(loc) = reply.ip_location() {
+                action_spans.push(Span::styled(
+                    format!(" · IP{}", loc),
+                    Style::default().fg(theme.fg_muted),
+                ));
+            }
+            action_spans.push(Span::styled(
+                format!("  {} ", like_icon),
+                Style::default().fg(like_color),
+            ));
+            action_spans.push(Span::styled(
+                format_count(self.like_count(reply)),
+                Style::default().fg(like_color),
+            ));
+            let action = Line::from(action_spans).style(if is_selected {
                 sel_style
             } else {
                 Style::default()
@@ -945,9 +1033,9 @@ impl CommentList {
             frame.render_widget(
                 Paragraph::new(action),
                 Rect {
-                    x: x_text - 2,
+                    x: text_x,
                     y: action_y,
-                    width: text_width + 2,
+                    width: text_width,
                     height: 1,
                 },
             );
@@ -982,7 +1070,7 @@ impl CommentList {
             ("加载回复中...".to_string(), icons::SPINNER, theme.warning)
         } else {
             (
-                format!("展开 {} 条回复", comment.reply_count()),
+                format!("共{}条回复，点击查看", comment.reply_count()),
                 icons::FOLD_CLOSED,
                 theme.bilibili_blue,
             )
