@@ -1,5 +1,6 @@
 //! Login page with QR code display
 
+use super::icons;
 use super::{Component, Theme, shortcut_footer};
 use crate::api::auth::{QrcodeData, QrcodePollStatus};
 use crate::api::client::ApiClient;
@@ -91,7 +92,7 @@ impl LoginPage {
 
             frame.render_widget(qr_widget, qr_area);
         } else {
-            let error = Paragraph::new("❌ 二维码生成失败")
+            let error = Paragraph::new(format!("{} 二维码生成失败", icons::ERROR))
                 .style(Style::default().fg(theme.error))
                 .alignment(Alignment::Center)
                 .block(block);
@@ -172,13 +173,24 @@ impl LoginPage {
         None
     }
 
-    fn status_text(&self, theme: &Theme) -> (&str, Color) {
+    fn status_text(&self, theme: &Theme) -> (String, Color) {
         match self.poll_status {
-            QrcodePollStatus::Waiting => ("⏳ 等待扫描二维码...", theme.warning),
-            QrcodePollStatus::Scanned => ("📱 已扫描，请在手机上确认登录", theme.info),
-            QrcodePollStatus::Success => ("✅ 登录成功！", theme.success),
-            QrcodePollStatus::Expired => ("❌ 二维码已过期，请按 r 刷新", theme.error),
-            QrcodePollStatus::Unknown(_) => ("❓ 未知状态", theme.fg_secondary),
+            QrcodePollStatus::Waiting => (
+                format!("{} 等待扫描二维码...", icons::HISTORY),
+                theme.warning,
+            ),
+            QrcodePollStatus::Scanned => (
+                format!("{} 已扫描，请在手机上确认登录", icons::MOBILE),
+                theme.info,
+            ),
+            QrcodePollStatus::Success => (format!("{} 登录成功！", icons::CHECK), theme.success),
+            QrcodePollStatus::Expired => (
+                format!("{} 二维码已过期，请按 r 刷新", icons::ERROR),
+                theme.error,
+            ),
+            QrcodePollStatus::Unknown(_) => {
+                (format!("{} 未知状态", icons::QUESTION), theme.fg_secondary)
+            }
         }
     }
 }
@@ -253,7 +265,7 @@ impl Component for LoginPage {
             ));
 
         if let Some(error) = &self.error_message {
-            let error_widget = Paragraph::new(format!("❌ {}", error))
+            let error_widget = Paragraph::new(format!("{} {}", icons::ERROR, error))
                 .style(Style::default().fg(theme.error))
                 .alignment(Alignment::Center)
                 .block(qr_block);

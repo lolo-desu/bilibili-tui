@@ -1,5 +1,6 @@
 //! Homepage with video recommendations in a grid layout with cover images
 
+use super::icons;
 use super::{Component, SearchPage, Theme, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::recommend::HomeFeed;
@@ -81,7 +82,7 @@ impl HomePage {
                     .border_style(Style::default().fg(theme.border_subtle))
                     .title(" 首页 "),
             )
-            .highlight_symbol("▶ ");
+            .highlight_symbol("");
         let mut state = ListState::default().with_selected(Some(self.selected_source));
         frame.render_stateful_widget(list, area, &mut state);
     }
@@ -125,14 +126,14 @@ impl HomePage {
             );
         } else if let Some(error) = &self.error_message {
             frame.render_widget(
-                Paragraph::new(format!("❌ {error}"))
+                Paragraph::new(format!("{} {error}", icons::ERROR))
                     .style(Style::default().fg(theme.error))
                     .alignment(Alignment::Center),
                 chunks[1],
             );
         } else if self.videos.is_empty() {
             frame.render_widget(
-                Paragraph::new("📭 暂无推荐视频")
+                Paragraph::new(format!("{} 暂无推荐视频", icons::INBOX))
                     .style(Style::default().fg(theme.fg_secondary))
                     .alignment(Alignment::Center),
                 chunks[1],
@@ -456,7 +457,7 @@ impl HomePage {
 
     fn source_label(&self, index: usize) -> String {
         if index == 0 {
-            "🔍 搜索".to_string()
+            format!("{} 搜索", icons::SEARCH).to_string()
         } else {
             HomeFeed::ALL[index - 1].label().to_string()
         }
@@ -867,9 +868,9 @@ impl HomePage {
             // Loading placeholder with spinner animation hint
             let is_pending = self.pending_downloads.contains(&video_idx);
             let placeholder_text = if is_pending {
-                "📺 加载中..."
+                format!("{} 加载中...", icons::TV)
             } else {
-                "📺"
+                icons::TV.to_string()
             };
             let placeholder = Paragraph::new(placeholder_text)
                 .style(Style::default().fg(theme.fg_secondary))

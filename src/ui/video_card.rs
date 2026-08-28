@@ -1,6 +1,7 @@
 //! Shared video card components for grid display across pages
 
 use super::Theme;
+use super::icons;
 use image::DynamicImage;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -120,7 +121,7 @@ impl VideoCard {
             frame.render_stateful_widget(image_widget, centered_cover, cover);
         } else {
             // Modern placeholder with subtle styling
-            let placeholder = Paragraph::new("📺")
+            let placeholder = Paragraph::new(icons::TV)
                 .style(Style::default().fg(theme.fg_muted))
                 .alignment(Alignment::Center);
             frame.render_widget(placeholder, cover_area);
@@ -185,7 +186,10 @@ impl VideoCard {
         if let Some(cover) = self.cover.as_mut() {
             frame.render_stateful_widget(StatefulImage::new(), chunks[0], cover);
         } else {
-            frame.render_widget(Paragraph::new("📺").alignment(Alignment::Center), chunks[0]);
+            frame.render_widget(
+                Paragraph::new(icons::TV).alignment(Alignment::Center),
+                chunks[0],
+            );
         }
         let style = if is_selected {
             Style::default()

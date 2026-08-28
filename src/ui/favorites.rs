@@ -278,7 +278,7 @@ impl Component for FavoritesPage {
         frame.render_stateful_widget(
             List::new(items)
                 .block(Block::default().borders(Borders::ALL).title(" 收藏 "))
-                .highlight_symbol("▶ ")
+                .highlight_symbol("")
                 .highlight_style(if self.focus_sources {
                     Style::default().fg(theme.bilibili_pink)
                 } else {

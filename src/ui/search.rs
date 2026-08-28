@@ -1,5 +1,6 @@
 //! Search page with video card grid display
 
+use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
 use super::{Component, Theme, shortcut_footer};
 use crate::api::client::ApiClient;
@@ -196,7 +197,7 @@ impl SearchPage {
         }
 
         if let Some(err) = &self.hotword_error {
-            let error_widget = Paragraph::new(format!("❌ {}", err))
+            let error_widget = Paragraph::new(format!("{} {}", icons::ERROR, err))
                 .style(Style::default().fg(theme.error))
                 .alignment(Alignment::Center)
                 .block(block);
@@ -280,7 +281,7 @@ impl Component for SearchPage {
                 Style::default().fg(theme.border_subtle)
             })
             .title(Span::styled(
-                " 🔍 搜索视频 ",
+                format!(" {} 搜索视频 ", icons::SEARCH),
                 Style::default().fg(theme.bilibili_pink),
             ));
 
@@ -309,7 +310,7 @@ impl Component for SearchPage {
                 );
             frame.render_widget(loading, chunks[1]);
         } else if let Some(error) = &self.error_message {
-            let error_widget = Paragraph::new(format!("❌ {}", error))
+            let error_widget = Paragraph::new(format!("{} {}", icons::ERROR, error))
                 .style(Style::default().fg(theme.error))
                 .alignment(Alignment::Center)
                 .block(

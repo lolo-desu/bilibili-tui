@@ -1,5 +1,6 @@
 //! History page with watch history display in a grid layout with cover images
 
+use super::icons;
 use super::{Component, Theme, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::history::{HistoryCursor, HistoryItem, HistoryKey};
@@ -467,7 +468,7 @@ impl Component for HistoryPage {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border_subtle))
             .title(Span::styled(
-                " 📜 观看历史 ",
+                format!(" {} 观看历史 ", icons::FEED),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),

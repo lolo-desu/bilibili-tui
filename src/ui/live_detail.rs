@@ -1,5 +1,6 @@
 //! Live streaming detail page with room info and real-time messages
 
+use super::icons;
 use super::{Component, Theme, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::live::LiveRoomInfo;
@@ -240,9 +241,9 @@ impl Component for LiveDetailPage {
 
         // Main block
         let title = if let Some(ref info) = self.room_info {
-            format!(" 📺 {} ", info.title)
+            format!(" {} {} ", icons::TV, info.title)
         } else {
-            " 📺 直播详情 ".to_string()
+            format!(" {} 直播详情 ", icons::TV).to_string()
         };
 
         let block = Block::default()
@@ -409,11 +410,17 @@ impl LiveDetailPage {
                 Span::styled(info.status_text(), Style::default().fg(status_color)),
             ]),
             Line::from(vec![
-                Span::styled("👁 ", Style::default().fg(theme.fg_muted)),
+                Span::styled(
+                    format!("{} ", icons::VIEW),
+                    Style::default().fg(theme.fg_muted),
+                ),
                 Span::styled(online_str, Style::default().fg(theme.fg_accent)),
             ]),
             Line::from(vec![
-                Span::styled("❤ ", Style::default().fg(theme.bilibili_pink)),
+                Span::styled(
+                    format!("{} ", icons::HEART_FILLED),
+                    Style::default().fg(theme.bilibili_pink),
+                ),
                 Span::styled(
                     Self::format_attention(info.attention),
                     Style::default().fg(theme.bilibili_pink),

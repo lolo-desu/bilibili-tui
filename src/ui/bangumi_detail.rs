@@ -1,5 +1,6 @@
 //! Bangumi detail page showing season info and episode list
 
+use super::icons;
 use super::{Component, Theme, shortcut_footer};
 use crate::api::bangumi::{BangumiEpisode, SeasonResult};
 use crate::api::client::ApiClient;
@@ -143,7 +144,7 @@ impl BangumiDetailPage {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border_subtle))
             .title(Span::styled(
-                " 📺 番剧信息 ",
+                format!(" {} 番剧信息 ", icons::TV),
                 Style::default().fg(theme.bilibili_pink),
             ));
 
@@ -175,7 +176,7 @@ impl BangumiDetailPage {
             let mut stats_spans = Vec::new();
             if let Some(ref rating) = season.rating {
                 stats_spans.push(Span::styled(
-                    format!("⭐ {:.1}分", rating.score),
+                    format!("{} {:.1}分", icons::STAR, rating.score),
                     Style::default().fg(theme.warning),
                 ));
                 stats_spans.push(Span::styled(" · ", Style::default().fg(theme.fg_muted)));
@@ -239,7 +240,7 @@ impl BangumiDetailPage {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border_subtle))
             .title(Span::styled(
-                " 📋 选集 ",
+                format!(" {} 选集 ", icons::LIST),
                 Style::default().fg(theme.bilibili_pink),
             ));
 
@@ -254,7 +255,7 @@ impl BangumiDetailPage {
             if fe.section_title != last_section {
                 last_section = fe.section_title.clone();
                 items.push(
-                    ListItem::new(format!("▸ {}", last_section)).style(
+                    ListItem::new(format!("{} {}", icons::FOLD_CLOSED, last_section)).style(
                         Style::default()
                             .fg(theme.fg_secondary)
                             .add_modifier(Modifier::BOLD),

@@ -1,5 +1,6 @@
 //! Bangumi page with rank list
 
+use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
 use super::{Component, Theme, shortcut_footer};
 use crate::api::bangumi::SeasonRankItem;
@@ -125,7 +126,10 @@ impl Component for BangumiPage {
 
         // Title
         let title = Paragraph::new(Line::from(vec![
-            Span::styled("🎬 ", Style::default().fg(theme.bilibili_pink)),
+            Span::styled(
+                format!("{} ", icons::PLAY),
+                Style::default().fg(theme.bilibili_pink),
+            ),
             Span::styled(
                 "番剧排行",
                 Style::default()

@@ -1,5 +1,6 @@
 //! Full-page article reader used by history entries.
 
+use super::icons;
 use super::{Component, Theme, shortcut_footer};
 use crate::api::{
     article::{ArticleBlock, ArticleData},
@@ -263,7 +264,12 @@ impl ArticleDetailPage {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("  {}  👍{}", comment.format_time(), comment.format_like()),
+                    format!(
+                        "  {}  {}{}",
+                        icons::LIKE,
+                        comment.format_time(),
+                        comment.format_like()
+                    ),
                     Style::default().fg(theme.fg_muted),
                 ),
             ]));

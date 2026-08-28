@@ -1,5 +1,6 @@
 //! Live streaming recommendations page with grid layout
 
+use super::icons;
 use super::{Component, Theme, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::live::LiveRoom;
@@ -329,7 +330,7 @@ impl Component for LivePage {
             .split(area);
 
         // Header
-        let header = Paragraph::new("📺 关注直播优先 · B站推荐")
+        let header = Paragraph::new(format!("{} 关注直播优先 · B站推荐", icons::TV))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -364,7 +365,7 @@ impl Component for LivePage {
         }
 
         if let Some(ref err) = self.error {
-            let error = Paragraph::new(format!("❌ 加载失败: {}", err))
+            let error = Paragraph::new(format!("{} 加载失败: {}", icons::ERROR, err))
                 .style(Style::default().fg(theme.error))
                 .alignment(Alignment::Center);
             frame.render_widget(error, chunks[1]);
@@ -372,7 +373,7 @@ impl Component for LivePage {
         }
 
         if self.rooms.is_empty() {
-            let empty = Paragraph::new("📭 暂无直播推荐")
+            let empty = Paragraph::new(format!("{} 暂无直播推荐", icons::INBOX))
                 .style(Style::default().fg(theme.fg_secondary))
                 .alignment(Alignment::Center);
             frame.render_widget(empty, chunks[1]);
@@ -624,7 +625,7 @@ impl LivePage {
             let image = StatefulImage::new();
             frame.render_stateful_widget(image, chunks[0], protocol);
         } else {
-            let placeholder = Paragraph::new("🎬")
+            let placeholder = Paragraph::new(icons::PLAY)
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(theme.fg_muted));
             frame.render_widget(placeholder, chunks[0]);
@@ -642,9 +643,9 @@ impl LivePage {
 
         // Format online count
         let online_text = if room.online >= 10000 {
-            format!("👁 {:.1}万", room.online as f64 / 10000.0)
+            format!("{} {:.1}万", icons::VIEW, room.online as f64 / 10000.0)
         } else {
-            format!("👁 {}", room.online)
+            format!("{} {}", icons::VIEW, room.online)
         };
 
         let info_lines = vec![

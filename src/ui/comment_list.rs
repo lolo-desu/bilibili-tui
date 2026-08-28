@@ -506,7 +506,7 @@ impl CommentList {
         if self.selected_entry + 1 < self.entries.len() {
             self.selected_entry += 1;
             self.sync_selected_comment();
-            // near bottom → request more comments
+            // near bottom: request more comments
             if self.selected_entry + 2 >= self.entries.len() && self.has_more && !self.loading_more
             {
                 return Some(CommentIntent::LoadMoreComments);

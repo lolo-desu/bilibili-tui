@@ -9,6 +9,7 @@ use crate::infrastructure::{
     persistence::{self, AppConfig, Credentials, Keybindings},
 };
 use crate::presentation::tui::{BangumiPage, DEFAULT_THEME_ID, HomePage, Page, Sidebar, Theme};
+use crate::ui::icons;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -126,8 +127,9 @@ impl App {
             theme_id,
             config,
             keybindings,
-            pending_home_notice: used_fallback
-                .then_some("⚠ 旧主题配置无效，请前往设置页重新选择主题".to_string()),
+            pending_home_notice: used_fallback.then_some(
+                format!("{} 旧主题配置无效，请前往设置页重新选择主题", icons::WARN).to_string(),
+            ),
             playback: PlaybackState::default(),
             live_danmaku_hub: None,
             danmaku_config_tx,

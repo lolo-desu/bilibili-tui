@@ -1,6 +1,7 @@
 //! Left sidebar navigation component
 
 use super::Theme;
+use super::icons;
 use ratatui::{prelude::*, widgets::*};
 
 /// Navigation menu items
@@ -17,16 +18,16 @@ pub enum NavItem {
 }
 
 impl NavItem {
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            NavItem::Home => "🏠 首页",
-            NavItem::Search => "🔍 搜索",
-            NavItem::Dynamic => "📺 动态",
-            NavItem::History => "📜 历史",
-            NavItem::Favorites => "⭐ 收藏夹",
-            NavItem::Live => "📡 直播",
-            NavItem::Bangumi => "🎬 番剧",
-            NavItem::Settings => "⚙️ 设置",
+            NavItem::Home => format!("{} 首页", icons::HOME),
+            NavItem::Search => format!("{} 搜索", icons::SEARCH),
+            NavItem::Dynamic => format!("{} 动态", icons::TV),
+            NavItem::History => format!("{} 历史", icons::FEED),
+            NavItem::Favorites => format!("{} 收藏夹", icons::STAR),
+            NavItem::Live => format!("{} 直播", icons::SIGNAL),
+            NavItem::Bangumi => format!("{} 番剧", icons::PLAY),
+            NavItem::Settings => format!("{} 设置", icons::GEAR),
         }
     }
 

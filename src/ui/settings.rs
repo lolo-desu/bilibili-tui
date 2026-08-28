@@ -1,5 +1,6 @@
 //! Settings page with theme selection, keybinding display, and account management
 
+use super::icons;
 use super::{Component, DEFAULT_THEME_ID, Theme, ThemeChoice};
 use crate::application::AppAction;
 use crate::storage::{DanmakuConfig, Keybindings, VideoQuality};
@@ -26,13 +27,13 @@ impl SettingsSection {
         ]
     }
 
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            SettingsSection::Theme => "🎨 主题",
-            SettingsSection::Danmaku => "💬 弹幕",
-            SettingsSection::Playback => "▶  播放",
-            SettingsSection::Keybindings => "⌨️ 快捷键",
-            SettingsSection::Account => "👤 账户",
+            SettingsSection::Theme => format!("{} 主题", icons::PAINT),
+            SettingsSection::Danmaku => format!("{} 弹幕", icons::COMMENT),
+            SettingsSection::Playback => "播放".to_string(),
+            SettingsSection::Keybindings => "快捷键".to_string(),
+            SettingsSection::Account => format!("{} 账户", icons::USER),
         }
     }
 }
@@ -159,7 +160,10 @@ impl Component for SettingsPage {
 
         // Header
         let header_line = Line::from(vec![
-            Span::styled("⚙️ ", Style::default().fg(theme.bilibili_pink)),
+            Span::styled(
+                format!("{} ", icons::GEAR),
+                Style::default().fg(theme.bilibili_pink),
+            ),
             Span::styled(
                 "设置",
                 Style::default()
@@ -552,7 +556,7 @@ impl SettingsPage {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border_subtle))
             .title(Span::styled(
-                " 💬 弹幕设置 ",
+                format!(" {} 弹幕设置 ", icons::COMMENT),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
@@ -707,7 +711,7 @@ impl SettingsPage {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border_subtle))
             .title(Span::styled(
-                " 🎨 选择主题 ",
+                format!(" {} 选择主题 ", icons::PAINT),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
@@ -859,7 +863,7 @@ impl SettingsPage {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border_subtle))
             .title(Span::styled(
-                " 👤 账户 ",
+                format!(" {} 账户 ", icons::USER),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),

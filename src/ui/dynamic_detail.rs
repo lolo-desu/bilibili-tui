@@ -1,5 +1,6 @@
 //! Dynamic detail page for viewing image/text dynamics
 
+use super::icons;
 use super::{Component, Theme, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::comment::CommentItem;
@@ -220,13 +221,17 @@ impl DynamicDetailPage {
 
         if let Some(ref item) = self.dynamic_item {
             // Author and time
-            lines.push(format!("👤 UP主: {}", item.author_name()));
-            lines.push(format!("🕒 发布时间: {}", item.pub_time()));
+            lines.push(format!("{} UP主: {}", icons::USER, item.author_name()));
+            lines.push(format!("{} 发布时间: {}", icons::HISTORY, item.pub_time()));
             lines.push(String::new());
 
             // Image count
             if !self.image_urls.is_empty() {
-                lines.push(format!("🖼️  图片数量: {} 张", self.image_urls.len()));
+                lines.push(format!(
+                    "{}  图片数量: {} 张",
+                    icons::IMAGE,
+                    self.image_urls.len()
+                ));
                 lines.push(String::new());
             }
 
@@ -240,7 +245,7 @@ impl DynamicDetailPage {
             if let Some(text) = content_text
                 && !text.is_empty()
             {
-                lines.push("📝 动态内容:".to_string());
+                lines.push(format!("{} 动态内容:", icons::EDIT).to_string());
                 lines.push(String::new());
                 for line in wrap_text(text, 60) {
                     lines.push(format!("  {}", line));
@@ -269,7 +274,9 @@ impl DynamicDetailPage {
                 .unwrap_or(0);
 
             block.push(format!(
-                "💬 {} [Lv.{}]  👍 {}  {}",
+                "{} {} [Lv.{}]  {} {}  {}",
+                icons::COMMENT,
+                icons::LIKE,
                 comment.author_name(),
                 level,
                 comment.format_like(),
@@ -340,12 +347,12 @@ impl Component for DynamicDetailPage {
         // Title
         let title_text = if let Some(ref item) = self.dynamic_item {
             if item.is_draw() || item.is_opus() {
-                "📷 图文动态详情"
+                format!("{} 图文动态详情", icons::CAMERA)
             } else {
-                "📄 动态详情"
+                format!("{} 动态详情", icons::ARTICLE)
             }
         } else {
-            "📄 动态详情"
+            format!("{} 动态详情", icons::ARTICLE)
         };
 
         let title = Paragraph::new(title_text)
@@ -399,7 +406,7 @@ impl Component for DynamicDetailPage {
                 .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(theme.bilibili_pink))
                 .title(Span::styled(
-                    " ✏️ 发表评论 ",
+                    format!(" {} 发表评论 ", icons::EDIT),
                     Style::default()
                         .fg(theme.bilibili_pink)
                         .add_modifier(Modifier::BOLD),

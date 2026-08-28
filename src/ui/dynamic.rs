@@ -1,5 +1,6 @@
 //! Dynamic feed page with video card grid display
 
+use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
 use super::{Component, Theme, shortcut_footer};
 use crate::api::client::ApiClient;
@@ -169,7 +170,7 @@ impl DynamicPage {
                         None,
                         item.video_title().unwrap_or("无标题").to_string(),
                         item.author_name().to_string(),
-                        format!("▶ {}", item.video_play()),
+                        format!("{} {}", icons::PLAY, item.video_play()),
                         item.video_duration().to_string(),
                         item.video_cover().map(|s| s.to_string()),
                     );
@@ -192,7 +193,7 @@ impl DynamicPage {
                     None,
                     format!("{}{}", desc, image_count),
                     item.author_name().to_string(),
-                    "📷 图片动态".to_string(),
+                    format!("{} 图片动态", icons::CAMERA).to_string(),
                     "".to_string(),
                     image_url,
                 );
@@ -214,7 +215,7 @@ impl DynamicPage {
                     None,
                     format!("{}{}", text, image_count),
                     item.author_name().to_string(),
-                    "📝 图文".to_string(),
+                    format!("{} 图文", icons::EDIT).to_string(),
                     "".to_string(),
                     image_url,
                 );
@@ -253,7 +254,7 @@ impl DynamicPage {
                         None,
                         item.video_title().unwrap_or("无标题").to_string(),
                         item.author_name().to_string(),
-                        format!("▶ {}", item.video_play()),
+                        format!("{} {}", icons::PLAY, item.video_play()),
                         item.video_duration().to_string(),
                         item.video_cover().map(|s| s.to_string()),
                     );
@@ -276,7 +277,7 @@ impl DynamicPage {
                     None,
                     format!("{}{}", desc, image_count),
                     item.author_name().to_string(),
-                    "📷 图片动态".to_string(),
+                    format!("{} 图片动态", icons::CAMERA).to_string(),
                     "".to_string(),
                     image_url,
                 );
@@ -298,7 +299,7 @@ impl DynamicPage {
                     None,
                     format!("{}{}", text, image_count),
                     item.author_name().to_string(),
-                    "📝 图文".to_string(),
+                    format!("{} 图文", icons::EDIT).to_string(),
                     "".to_string(),
                     image_url,
                 );
@@ -369,7 +370,11 @@ impl DynamicPage {
     fn draw_up_list(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let mut items = vec![ListItem::new("全部")];
         items.extend(self.up_list.iter().map(|user| {
-            let marker = if user.has_update { "● " } else { "  " };
+            let marker = if user.has_update {
+                format!("{} ", icons::STAR)
+            } else {
+                "  ".to_string()
+            };
             ListItem::new(format!("{marker}{}", user.uname))
         }));
         let list = List::new(items)
@@ -380,7 +385,7 @@ impl DynamicPage {
                     .border_style(Style::default().fg(theme.border_subtle))
                     .title(" 关注的UP主 "),
             )
-            .highlight_symbol("▶ ")
+            .highlight_symbol("")
             .highlight_style(Style::default().fg(if self.focus_up_list {
                 theme.bilibili_pink
             } else {
@@ -412,7 +417,7 @@ impl Component for DynamicPage {
             .constraints([Constraint::Length(2), Constraint::Length(3)])
             .split(chunks[0]);
         let title = Paragraph::new(Line::from(vec![
-            Span::styled(" 📺 ", Style::default()),
+            Span::styled(format!(" {} ", icons::TV), Style::default()),
             Span::styled(
                 "关注动态",
                 Style::default()
@@ -467,7 +472,7 @@ impl Component for DynamicPage {
             );
         } else if let Some(error) = &self.error_message {
             frame.render_widget(
-                Paragraph::new(format!("❌ {error}"))
+                Paragraph::new(format!("{} {error}", icons::ERROR))
                     .style(Style::default().fg(theme.error))
                     .alignment(Alignment::Center),
                 chunks[1],

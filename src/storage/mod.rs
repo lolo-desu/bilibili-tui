@@ -54,7 +54,7 @@ impl Credentials {
         cookies: &[(String, String)],
         refresh_token: Option<String>,
     ) -> Option<Self> {
-        // ✅ 使用闭包和迭代器查找 cookie
+        // 使用闭包和迭代器查找 cookie
         let get_cookie = |name: &str| -> Option<String> {
             cookies
                 .iter()
