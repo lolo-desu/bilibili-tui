@@ -1229,8 +1229,17 @@ impl App {
                     host_mid,
                 });
             }
-            Page::VideoDetail(_) => {
-                // VideoDetail is initialized when created
+            Page::VideoDetail(page) => {
+                // Deep-linked start (dev --open): detail pages are normally
+                // initialized by the action that creates them.
+                let bvid = page.bvid.clone();
+                let aid = page.aid;
+                let req_id = self.next_request_id("video_detail");
+                self.send_network_command(network::NetworkCommand::LoadVideoDetail {
+                    req_id,
+                    bvid,
+                    aid,
+                });
             }
             Page::DynamicDetail(_) => {
                 // DynamicDetail is initialized when created
@@ -1267,8 +1276,17 @@ impl App {
             Page::BangumiDetail(_) => {
                 // BangumiDetail is initialized when created
             }
-            Page::Up(_) => {
-                // UpPage is initialized by OpenUpPage with an identity-bound request.
+            Page::Up(page) => {
+                // Deep-linked start (dev --open): normally created by OpenUpPage
+                page.loading = true;
+                let mid = page.mid;
+                let order = page.video_order;
+                let req_id = self.next_request_id("up_page");
+                self.send_network_command(network::NetworkCommand::LoadUpPage {
+                    req_id,
+                    mid,
+                    order,
+                });
             }
         }
     }

@@ -321,9 +321,17 @@ impl VideoDetailPage {
             );
             frame.render_widget(title, chunks[0]);
 
-            // Author
-            let author = Paragraph::new(format!("UP: {}", info.owner.name))
-                .style(Style::default().fg(theme.bilibili_pink));
+            // Author (hint: press u to open UP home - web-style link affordance)
+            let author = Paragraph::new(Line::from(vec![
+                Span::styled("UP ", Style::default().fg(theme.fg_muted)),
+                Span::styled(
+                    info.owner.name.clone(),
+                    Style::default()
+                        .fg(theme.bilibili_blue)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                ),
+                Span::styled("  (u 主页)", Style::default().fg(theme.fg_muted)),
+            ]));
             frame.render_widget(author, chunks[1]);
 
             // Stats
@@ -402,18 +410,31 @@ impl VideoDetailPage {
 
         let total = self.comment_list.comments.len();
         let more_hint = if self.comment_list.has_more { "+" } else { "" };
+        let sort_icon = self.comment_list.sort_icon();
+        let sort_label = self.comment_list.sort_label();
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(border_style)
-            .title(Span::styled(
-                format!(" {} 评论 {}{} ", icons::COMMENT, total, more_hint),
-                Style::default().fg(if is_focused {
-                    theme.bilibili_pink
-                } else {
-                    theme.fg_muted
-                }),
-            ));
+            .title(Line::from(vec![
+                Span::styled(
+                    format!(" {} 评论 {}{} ", icons::COMMENT, total, more_hint),
+                    Style::default().fg(if is_focused {
+                        theme.bilibili_pink
+                    } else {
+                        theme.fg_muted
+                    }),
+                ),
+                Span::styled(
+                    format!(" {}·{} ", sort_icon, sort_label),
+                    Style::default().fg(if is_focused {
+                        theme.bilibili_cyan
+                    } else {
+                        theme.fg_muted
+                    }),
+                ),
+                Span::styled(" (t切换) ", Style::default().fg(theme.fg_muted)),
+            ]));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);

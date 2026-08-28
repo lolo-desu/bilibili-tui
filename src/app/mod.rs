@@ -8,7 +8,10 @@ use crate::infrastructure::{
     bilibili::{ApiClient, LiveDanmakuHub},
     persistence::{self, AppConfig, Credentials, Keybindings},
 };
-use crate::presentation::tui::{BangumiPage, DEFAULT_THEME_ID, HomePage, Page, Sidebar, Theme};
+use crate::presentation::tui::{
+    BangumiPage, DEFAULT_THEME_ID, HomePage, Page, SettingsPage, Sidebar, Theme, UpPage,
+    VideoDetailPage,
+};
 use crate::ui::icons;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -89,6 +92,10 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        Self::new_with_open(None)
+    }
+
+    pub fn new_with_open(open_spec: Option<&str>) -> Self {
         let credentials = persistence::load_credentials().ok();
         let api_client = if let Some(ref creds) = credentials {
             ApiClient::with_cookies(creds)
@@ -112,7 +119,13 @@ impl App {
         };
 
         // Always start from home. Login is now an optional flow.
-        let current_page = Page::Home(HomePage::new());
+        let current_page = Self::page_for_open_spec(
+            open_spec,
+            &keybindings,
+            &theme_id,
+            credentials.is_some(),
+            &config,
+        );
 
         Self {
             current_page,
@@ -143,6 +156,47 @@ impl App {
             network_command_tx: bridge.command_tx,
             network_event_rx: bridge.event_rx,
             request_tracker: RequestTracker::default(),
+        }
+    }
+
+    /// Resolve a `--open` deep-link spec into the initial page.
+    fn page_for_open_spec(
+        spec: Option<&str>,
+        keybindings: &Keybindings,
+        theme_id: &str,
+        is_logged_in: bool,
+        config: &crate::storage::AppConfig,
+    ) -> Page {
+        match spec {
+            Some("settings") => Page::Settings(Box::new(SettingsPage::new(
+                keybindings.clone(),
+                theme_id.to_string(),
+                is_logged_in,
+                config.danmaku.clone(),
+                config.auto_play,
+                config.video_quality,
+            ))),
+            Some(s) if s.starts_with("video:") => {
+                let mut it = s[6..].split(',');
+                let bvid = it.next().unwrap_or("").to_string();
+                let aid: i64 = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                Page::VideoDetail(Box::new(VideoDetailPage::new(bvid, aid)))
+            }
+            Some(s) if s.starts_with("up:") => {
+                let mid: i64 = s[3..].parse().unwrap_or(0);
+                Page::Up(Box::new(UpPage::new(mid)))
+            }
+            Some(s) if s.starts_with("home:") => {
+                let cols: usize = s[5..].parse().unwrap_or(1);
+                let mut page = HomePage::new();
+                // cycle from the default (1 col) until we reach the target
+                while page.column_count() != cols.clamp(1, 4) {
+                    page.cycle_columns(1);
+                }
+                page.focus_sources = false;
+                Page::Home(page)
+            }
+            _ => Page::Home(HomePage::new()),
         }
     }
 

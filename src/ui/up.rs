@@ -1,3 +1,5 @@
+use super::icons;
+use super::image_picker::shared_picker;
 use super::{Component, Theme, VideoCard, VideoCardGrid, shortcut_footer};
 use crate::api::{
     favorite::{FavoriteFolder, FavoriteOrder, FavoriteResourceData},
@@ -12,7 +14,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap},
+    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +27,12 @@ pub struct UpPage {
     pub mid: i64,
     pub profile: Option<SpaceInfo>,
     pub relation: Option<RelationStat>,
+    /// Rendered avatar protocol (downloaded once, web-style header).
+    pub avatar: Option<ratatui_image::protocol::StatefulProtocol>,
+    avatar_rx: tokio::sync::mpsc::Receiver<ratatui_image::protocol::StatefulProtocol>,
+    #[allow(dead_code)]
+    avatar_tx: tokio::sync::mpsc::Sender<ratatui_image::protocol::StatefulProtocol>,
+    avatar_pending: bool,
     pub tab: UpTab,
     pub video_order: SpaceVideoOrder,
     pub play_order: PlayOrder,
@@ -46,10 +54,15 @@ pub struct UpPage {
 
 impl UpPage {
     pub fn new(mid: i64) -> Self {
+        let (avatar_tx, avatar_rx) = tokio::sync::mpsc::channel(4);
         Self {
             mid,
             profile: None,
             relation: None,
+            avatar: None,
+            avatar_rx,
+            avatar_tx,
+            avatar_pending: false,
             tab: UpTab::Videos,
             video_order: SpaceVideoOrder::Latest,
             play_order: PlayOrder::Forward,
@@ -173,6 +186,34 @@ impl UpPage {
         self.error = Some(error);
     }
 
+    /// Kick off a one-shot avatar download and poll the result channel.
+    fn poll_avatar(&mut self) {
+        if self.avatar.is_some() || self.avatar_pending {
+            return;
+        }
+        let Some(url) = self.profile.as_ref().and_then(|p| p.face.clone()) else {
+            return;
+        };
+        self.avatar_pending = true;
+        let url = url.replacen("http://", "https://", 1);
+        let picker = shared_picker();
+        let tx = self.avatar_tx.clone();
+        tokio::spawn(async move {
+            if let Some(img) = super::comment_list::download_image(&url).await {
+                let protocol = picker.new_resize_protocol(img);
+                let _ = tx.send(protocol).await;
+            }
+        });
+    }
+
+    /// Drain the avatar channel (protocol rendered by the UI thread).
+    fn take_avatar(&mut self) {
+        while let Ok(protocol) = self.avatar_rx.try_recv() {
+            self.avatar = Some(protocol);
+            self.avatar_pending = false;
+        }
+    }
+
     fn selected_grid(&mut self) -> &mut VideoCardGrid {
         if self.tab == UpTab::Videos {
             &mut self.videos
@@ -181,38 +222,106 @@ impl UpPage {
         }
     }
 
-    fn draw_header(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let (name, sign) = self
+    fn draw_header(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        self.poll_avatar();
+        self.take_avatar();
+
+        let (name, sign, level) = self
             .profile
             .as_ref()
-            .map(|p| (p.name.as_str(), p.sign.as_deref().unwrap_or("暂无签名")))
-            .unwrap_or(("加载中…", ""));
-        let stats = self
+            .map(|p| {
+                (
+                    p.name.as_str(),
+                    p.sign.as_deref().unwrap_or("暂无签名"),
+                    p.level.unwrap_or(0),
+                )
+            })
+            .unwrap_or(("加载中…", "", 0));
+        let (follower, following) = self
             .relation
             .as_ref()
             .map(|r| {
-                format!(
-                    "关注 {}  ·  粉丝 {}",
+                (
+                    format_count(r.follower.unwrap_or_default()),
                     format_count(r.following.unwrap_or_default()),
-                    format_count(r.follower.unwrap_or_default())
                 )
             })
-            .unwrap_or_default();
-        let text = vec![
-            Line::from(Span::styled(
-                name,
+            .unwrap_or_else(|| ("-".to_string(), "-".to_string()));
+
+        // Banner block with soft panel background (web user-space style)
+        let banner = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border_subtle))
+            .style(Style::default().bg(theme.bg_card))
+            .title(Span::styled(
+                format!(" {} UP主空间 ", icons::USER),
+                Style::default().fg(theme.bilibili_pink),
+            ));
+        let inner = banner.inner(area);
+        frame.render_widget(banner, area);
+
+        // Avatar square on the left (2 rows tall ≈ 4 cols wide)
+        let avatar_rect = Rect {
+            x: inner.x + 1,
+            y: inner.y + 1,
+            width: 4,
+            height: inner.height.saturating_sub(2).min(4),
+        };
+        if let Some(protocol) = self.avatar.as_mut() {
+            use ratatui_image::StatefulImage;
+            frame.render_stateful_widget(StatefulImage::new(), avatar_rect, protocol);
+        } else {
+            frame.render_widget(
+                Paragraph::new(icons::USER)
+                    .style(Style::default().fg(theme.fg_muted))
+                    .alignment(Alignment::Center),
+                avatar_rect,
+            );
+        }
+
+        // Identity column right of the avatar
+        let text_x = avatar_rect.x + avatar_rect.width + 2;
+        let text_w = inner.right().saturating_sub(text_x + 1);
+        let name_spans = vec![
+            Span::styled(
+                name.to_string(),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" LV{}", level),
+                Style::default().fg(theme.bilibili_cyan),
+            ),
+        ];
+        let stat_line = Line::from(vec![
+            Span::styled(
+                format!("{} 粉丝", follower),
+                Style::default().fg(theme.fg_secondary),
+            ),
+            Span::styled("  ·  ", Style::default().fg(theme.fg_muted)),
+            Span::styled(
+                format!("{} 关注", following),
+                Style::default().fg(theme.fg_secondary),
+            ),
+        ]);
+        let column = vec![
+            Line::from(name_spans),
+            Line::from(Span::styled(
+                sign.to_string(),
+                Style::default().fg(theme.fg_muted),
             )),
-            Line::from(sign),
-            Line::from(Span::styled(stats, Style::default().fg(theme.fg_muted))),
+            stat_line,
         ];
         frame.render_widget(
-            Paragraph::new(text)
-                .wrap(Wrap { trim: true })
-                .block(Block::default().borders(Borders::ALL).title(" UP主空间 ")),
-            area,
+            Paragraph::new(column).wrap(Wrap { trim: true }),
+            Rect {
+                x: text_x,
+                y: inner.y,
+                width: text_w,
+                height: inner.height,
+            },
         );
     }
 }
@@ -222,7 +331,7 @@ impl Component for UpPage {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5),
+                Constraint::Length(7),
                 Constraint::Length(3),
                 Constraint::Min(8),
                 Constraint::Length(2),
@@ -294,6 +403,7 @@ impl Component for UpPage {
             Paragraph::new(shortcut_footer(
                 theme,
                 [
+                    ("u".into(), "用户主页".into(), theme.info),
                     ("1/2".into(), "投稿/收藏夹".into(), theme.info),
                     (
                         format!("{}/{}", keys.page_up, keys.page_down),

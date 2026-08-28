@@ -96,6 +96,13 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
 
+        // Paint the global background first so the terminal's own bg color
+        // never bleeds through gaps between bordered panes (opencode style).
+        frame.render_widget(
+            Block::default().style(Style::default().bg(self.theme.bg_primary)),
+            area,
+        );
+
         // Login page, VideoDetail, DynamicDetail, and BangumiDetail don't show sidebar
         if matches!(
             self.current_page,

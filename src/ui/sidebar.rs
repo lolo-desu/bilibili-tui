@@ -56,11 +56,9 @@ impl Sidebar {
     }
 
     pub fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        // Main block with subtle right border
-        let block = Block::default()
-            .borders(Borders::RIGHT)
-            .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(theme.border_subtle));
+        // Background panel instead of border lines (opencode style): the
+        // sidebar reads as a colored surface, content area stays on bg_primary.
+        let block = Block::default().style(Style::default().bg(theme.bg_secondary));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);

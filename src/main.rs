@@ -7,6 +7,12 @@ use std::io;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    // --open <spec>: deep-link into a page for development screenshots/tests
+    let open_spec = std::env::args()
+        .nth(1)
+        .filter(|a| a == "--open")
+        .and_then(|_| std::env::args().nth(2));
+
     // Initialize terminal
     let mut terminal = ratatui::init();
     terminal.clear()?;
@@ -15,7 +21,7 @@ async fn main() -> io::Result<()> {
     execute!(std::io::stdout(), EnableMouseCapture)?;
 
     // Run the application
-    let app = App::new();
+    let app = App::new_with_open(open_spec.as_deref());
     let result = app.run(&mut terminal).await;
 
     // Disable mouse capture before restoring

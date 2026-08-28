@@ -153,6 +153,8 @@ impl HomePage {
                     theme.fg_accent,
                 ),
                 ("←/→".into(), "切换面板".into(), theme.fg_accent),
+                ("[ ]".into(), "列数".into(), theme.fg_accent),
+                ("u".into(), "UP主页".into(), theme.bilibili_blue),
                 (keys.confirm.clone(), "播放".into(), theme.success),
                 (keys.search_focus.clone(), "搜索".into(), theme.info),
                 (keys.refresh.clone(), "刷新".into(), theme.info),
@@ -171,6 +173,7 @@ impl HomePage {
 impl HomePage {
     /// 默认列数
     const DEFAULT_COLUMNS: usize = 1;
+    const COLUMN_CHOICES: [usize; 4] = [1, 2, 3, 4];
     /// 卡片高度
     const CARD_HEIGHT: u16 = 8;
     /// 预取缓冲行数（可见区域之外额外下载）
@@ -488,6 +491,30 @@ impl Default for HomePage {
     }
 }
 
+impl HomePage {
+    /// Current grid column count (public for tests/deep-links).
+    pub fn column_count(&self) -> usize {
+        self.columns
+    }
+
+    /// Switch grid column count (1/2/3/4) in the given direction.
+    pub fn cycle_columns(&mut self, direction: i32) {
+        let cur = Self::COLUMN_CHOICES
+            .iter()
+            .position(|c| *c == self.columns)
+            .unwrap_or(0);
+        let len = Self::COLUMN_CHOICES.len();
+        let next = if direction >= 0 {
+            (cur + 1) % len
+        } else {
+            (cur + len - 1) % len
+        };
+        self.columns = Self::COLUMN_CHOICES[next];
+        self.scroll_row = self.selected_index / self.columns.max(1);
+        self.update_scroll(self.cached_visible_rows);
+    }
+}
+
 impl Component for HomePage {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings) {
         let panes = Layout::default()
@@ -563,6 +590,14 @@ impl Component for HomePage {
         }
         if self.selected_source == 0 {
             return self.search.handle_input(key, keys);
+        }
+        if key == KeyCode::Char('[') {
+            self.cycle_columns(-1);
+            return Some(AppAction::None);
+        }
+        if key == KeyCode::Char(']') {
+            self.cycle_columns(1);
+            return Some(AppAction::None);
         }
         if self.loading {
             return Some(AppAction::None);
@@ -961,6 +996,34 @@ fn format_count(value: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cycle_columns_steps_through_layouts() {
+        let mut page = HomePage::new();
+        assert_eq!(page.columns, 1);
+        page.cycle_columns(1);
+        assert_eq!(page.columns, 2);
+        page.cycle_columns(1);
+        assert_eq!(page.columns, 3);
+        page.cycle_columns(1);
+        assert_eq!(page.columns, 4);
+        page.cycle_columns(1);
+        assert_eq!(page.columns, 1, "wraps around to single column");
+        page.cycle_columns(-1);
+        assert_eq!(page.columns, 4, "wraps backwards");
+    }
+
+    #[test]
+    fn bracket_keys_cycle_columns_via_input() {
+        let mut page = HomePage::new();
+        page.focus_sources = false; // grid must have focus
+        page.selected_source = 1; // leave the search pane (source 0)
+        let keys = Keybindings::default();
+        page.handle_input(KeyCode::Char(']'), &keys);
+        assert_eq!(page.columns, 2);
+        page.handle_input(KeyCode::Char('['), &keys);
+        assert_eq!(page.columns, 1);
+    }
 
     #[test]
     fn home_pane_switch_preempts_loading() {

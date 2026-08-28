@@ -31,8 +31,8 @@ impl SettingsSection {
         match self {
             SettingsSection::Theme => format!("{} 主题", icons::PAINT),
             SettingsSection::Danmaku => format!("{} 弹幕", icons::COMMENT),
-            SettingsSection::Playback => "播放".to_string(),
-            SettingsSection::Keybindings => "快捷键".to_string(),
+            SettingsSection::Playback => format!("{} 播放", icons::SLIDERS),
+            SettingsSection::Keybindings => format!("{} 快捷键", icons::KEYBOARD),
             SettingsSection::Account => format!("{} 账户", icons::USER),
         }
     }
@@ -215,7 +215,7 @@ impl Component for SettingsPage {
             Line::from(vec![
                 Span::styled(" [", Style::default().fg(theme.fg_secondary)),
                 Span::styled(
-                    format!("{}{}", keys.section_prev, keys.section_next),
+                    "[ ]".to_string(),
                     Style::default()
                         .fg(theme.fg_accent)
                         .add_modifier(Modifier::BOLD),
@@ -310,32 +310,28 @@ impl Component for SettingsPage {
         if keys.matches_nav_prev(key) {
             return Some(AppAction::NavPrev);
         }
+        // [ / ] move between sections directly - never conflicts with
+        // left/right which adjust option values inside a section.
+        if key == KeyCode::Char('[') {
+            self.change_section(-1);
+            return Some(AppAction::None);
+        }
+        if key == KeyCode::Char(']') {
+            self.change_section(1);
+            return Some(AppAction::None);
+        }
         if keys.matches_section_prev(key) {
-            // Cycle through sections backwards
-            let sections = SettingsSection::all();
-            self.section_index = if self.section_index == 0 {
-                sections.len() - 1
-            } else {
-                self.section_index - 1
-            };
-            self.current_section = sections[self.section_index];
+            self.change_section(-1);
             return Some(AppAction::None);
         }
         if keys.matches_section_next(key) {
-            // Cycle through sections forwards
-            let sections = SettingsSection::all();
-            self.section_index = (self.section_index + 1) % sections.len();
-            self.current_section = sections[self.section_index];
+            self.change_section(1);
             return Some(AppAction::None);
         }
         if (keys.matches_left(key) || keys.matches_right(key))
             && self.current_section == SettingsSection::Playback
         {
             return Some(self.adjust_playback(if keys.matches_right(key) { 1 } else { -1 }));
-        }
-        if keys.matches_left(key) || keys.matches_right(key) {
-            self.change_section(if keys.matches_right(key) { 1 } else { -1 });
-            return Some(AppAction::None);
         }
         if keys.matches_up(key) {
             match self.current_section {
@@ -671,9 +667,7 @@ impl SettingsPage {
 
     fn draw_section_list(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
-            .borders(Borders::RIGHT)
-            .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(theme.border_subtle))
+            .style(Style::default().bg(theme.bg_secondary))
             .title(Span::styled(
                 " 分类 ",
                 Style::default()

@@ -75,30 +75,43 @@ pub enum CommentIntent {
 
 /// Avatar download result message.
 pub struct AvatarResult {
-    pub index: usize,
+    pub key: (Option<i64>, String),
     pub protocol: StatefulProtocol,
 }
 
 /// Async avatar loader: downloads avatar images in the background and keeps
-/// one rendered protocol per comment (index-aligned with `comments`).
+/// one rendered protocol per author, keyed by `(mid, uname)` instead of list
+/// index — comment refreshes reorder/re-paginate the list, and index-keyed
+/// caches showed the previous holder's avatar under a new name.
 ///
 /// The terminal picker is created lazily on first use — `Picker::from_query_stdio`
 /// performs terminal capability queries that must never run at page-construction
 /// time (it blocks non-TTY test environments).
 pub struct AvatarLoader {
-    pub protocols: Vec<Option<StatefulProtocol>>,
-    pending: HashSet<usize>,
+    /// Rendered image protocols keyed by author identity (mid, uname).
+    pub protocols: HashMap<(Option<i64>, String), StatefulProtocol>,
+    pending: HashSet<(Option<i64>, String)>,
     tx: mpsc::Sender<AvatarResult>,
     rx: mpsc::Receiver<AvatarResult>,
     picker: Option<Arc<Picker>>,
     supports_images: bool,
 }
 
+/// Stable author identity used to key avatar cache entries.
+fn author_key(
+    member: Option<&crate::api::comment::CommentMember>,
+) -> Option<(Option<i64>, String)> {
+    let member = member?;
+    let mid = member.mid.clone().and_then(|m| m.parse::<i64>().ok());
+    let name = member.uname.clone().or_else(|| member.avatar.clone())?;
+    Some((mid, name))
+}
+
 impl AvatarLoader {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel(64);
         Self {
-            protocols: Vec::new(),
+            protocols: HashMap::new(),
             pending: HashSet::new(),
             tx,
             rx,
@@ -122,64 +135,47 @@ impl AvatarLoader {
 
     /// Whether the terminal supports image rendering (queried lazily once).
     pub fn supports_images(&mut self) -> bool {
-        if self.protocols.iter().any(|p| p.is_some()) {
+        if !self.protocols.is_empty() {
             return true;
         }
         self.ensure_picker().is_some()
     }
 
-    /// Sync list size after comments change (keeps index alignment).
-    pub fn sync_len(&mut self, len: usize) {
-        while self.protocols.len() > len {
-            self.protocols.pop();
-        }
-        while self.protocols.len() < len {
-            self.protocols.push(None);
-        }
+    pub fn get(&self, key: &(Option<i64>, String)) -> Option<&StatefulProtocol> {
+        self.protocols.get(key)
     }
 
-    pub fn get(&self, index: usize) -> Option<&StatefulProtocol> {
-        self.protocols.get(index).and_then(|p| p.as_ref())
+    pub fn get_mut(&mut self, key: &(Option<i64>, String)) -> Option<&mut StatefulProtocol> {
+        self.protocols.get_mut(key)
     }
 
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut StatefulProtocol> {
-        self.protocols.get_mut(index).and_then(|p| p.as_mut())
+    fn is_loaded_or_pending(&self, key: &(Option<i64>, String)) -> bool {
+        self.pending.contains(key) || self.protocols.contains_key(key)
     }
 
-    fn is_loaded_or_pending(&self, index: usize) -> bool {
-        self.pending.contains(&index)
-            || self
-                .protocols
-                .get(index)
-                .map(|p| p.is_some())
-                .unwrap_or(true)
-    }
-
-    /// Request downloads for the given comment indices.
-    pub fn request(&mut self, indices: impl IntoIterator<Item = usize>, urls: &[Option<String>]) {
+    /// Request downloads for the given authors (identity + avatar url).
+    pub fn request(
+        &mut self,
+        authors: impl IntoIterator<Item = ((Option<i64>, String), Option<String>)>,
+    ) {
         let Some(picker) = self.ensure_picker() else {
             return;
         };
-        for idx in indices {
-            if self.is_loaded_or_pending(idx) {
+        for (key, url) in authors {
+            if self.is_loaded_or_pending(&key) {
                 continue;
             }
-            let Some(url) = urls.get(idx).and_then(|u| u.as_ref()) else {
+            let Some(url) = url else {
                 continue;
             };
-            self.pending.insert(idx);
+            self.pending.insert(key.clone());
             let tx = self.tx.clone();
             let picker = Arc::clone(&picker);
-            let url = normalize_avatar_url(url);
+            let url = normalize_avatar_url(&url);
             tokio::spawn(async move {
                 if let Some(img) = download_image(&url).await {
                     let protocol = picker.new_resize_protocol(img);
-                    let _ = tx
-                        .send(AvatarResult {
-                            index: idx,
-                            protocol,
-                        })
-                        .await;
+                    let _ = tx.send(AvatarResult { key, protocol }).await;
                 }
             });
         }
@@ -189,11 +185,9 @@ impl AvatarLoader {
     pub fn poll(&mut self) -> bool {
         let mut updated = false;
         while let Ok(result) = self.rx.try_recv() {
-            self.pending.remove(&result.index);
-            if let Some(slot) = self.protocols.get_mut(result.index) {
-                *slot = Some(result.protocol);
-                updated = true;
-            }
+            self.pending.remove(&result.key);
+            self.protocols.insert(result.key, result.protocol);
+            updated = true;
         }
         updated
     }
@@ -209,13 +203,48 @@ fn normalize_avatar_url(url: &str) -> String {
     url.replacen("http://", "https://", 1)
 }
 
-async fn download_image(url: &str) -> Option<DynamicImage> {
+/// Download an image over https (shared with other pages).
+pub(super) async fn download_image(url: &str) -> Option<DynamicImage> {
     let response = reqwest::get(url).await.ok()?;
     let bytes = response.bytes().await.ok()?;
     image::load_from_memory(&bytes).ok()
 }
 
 /// Level badge color, mirroring bilibili's web palette.
+/// Wrap `segments` into visual lines of at most `width` cells, preserving
+/// emote styling across wraps.
+fn wrap_segments(
+    segments: &[crate::api::comment::Segment<'_>],
+    width: usize,
+    theme: &Theme,
+) -> Vec<Vec<Span<'static>>> {
+    let mut lines: Vec<Vec<Span<'static>>> = vec![Vec::new()];
+    for seg in segments {
+        match seg {
+            crate::api::comment::Segment::Text(t) => {
+                for line in wrap_lines(t, width) {
+                    lines.push(vec![Span::styled(line.to_string(), Style::default())]);
+                }
+            }
+            crate::api::comment::Segment::Emote(token) => {
+                let styled = format!("{}{} ", icons::SMILE, token);
+                if lines.len() == 1 && lines[0].is_empty() {
+                    lines[0].push(Span::styled(
+                        styled,
+                        Style::default().fg(theme.bilibili_cyan),
+                    ));
+                } else {
+                    lines.push(vec![Span::styled(
+                        styled,
+                        Style::default().fg(theme.bilibili_cyan),
+                    )]);
+                }
+            }
+        }
+    }
+    lines
+}
+
 fn level_color(level: i32, theme: &Theme) -> Color {
     match level {
         0 | 1 => theme.fg_muted,
@@ -304,14 +333,12 @@ impl CommentList {
         self.selected = self.selected.min(self.comments.len().saturating_sub(1));
         self.scroll = 0;
         self.has_more = total_count > self.comments.len() as i64;
-        self.avatars.sync_len(self.comments.len());
         self.entries.clear();
     }
 
     /// Append a page of comments (pagination).
     pub fn append_comments(&mut self, comments: Vec<CommentItem>) {
         self.comments.extend(comments);
-        self.avatars.sync_len(self.comments.len());
         self.entries.clear();
     }
 
@@ -372,6 +399,20 @@ impl CommentList {
         self.liked.contains(&rpid)
     }
 
+    /// Sort badge shown next to the comment panel title: 最热 / 最新.
+    pub fn sort_label(&self) -> &'static str {
+        if self.sort_newest { "最新" } else { "最热" }
+    }
+
+    /// Sort glyph: fire for hot, clock for newest.
+    pub fn sort_icon(&self) -> &'static str {
+        if self.sort_newest {
+            icons::CLOCK_O
+        } else {
+            icons::FIRE_ALT
+        }
+    }
+
     /// Reset to the first comment (e.g. after refresh).
     pub fn reset_selection(&mut self) {
         self.selected_entry = 0;
@@ -384,10 +425,16 @@ impl CommentList {
         self.comments.get(self.selected)
     }
 
-    fn avatar_urls(&self) -> Vec<Option<String>> {
-        self.comments
+    /// Collect visible authors' identities + avatar urls for prefetch.
+    #[allow(clippy::type_complexity)]
+    fn visible_authors(&self, indices: &[usize]) -> Vec<((Option<i64>, String), Option<String>)> {
+        indices
             .iter()
-            .map(|c| c.member.as_ref().and_then(|m| m.avatar.clone()))
+            .filter_map(|i| {
+                let c = self.comments.get(*i)?;
+                let key = author_key(c.member.as_ref())?;
+                Some((key, c.member.as_ref().and_then(|m| m.avatar.clone())))
+            })
             .collect()
     }
 
@@ -645,11 +692,9 @@ impl CommentList {
 
         // avatar prefetch for visible comments
         let visible_comments = self.visible_comment_indices(viewport);
-        let urls = self.avatar_urls();
-        self.avatars
-            .request(visible_comments.iter().copied(), &urls);
-        let avatars_updated = self.avatars.poll();
-        let _ = avatars_updated;
+        let authors = self.visible_authors(&visible_comments);
+        self.avatars.request(authors);
+        self.avatars.poll();
 
         // background layer per line: selection highlight
         for (i, entry) in self.entries.iter().enumerate() {
@@ -700,8 +745,14 @@ impl CommentList {
                     width: AVATAR_COLS,
                     height: AVATAR_ROWS.min(area.bottom().saturating_sub(row)),
                 };
-                let comment_idx = entry.comment_index;
-                if let Some(protocol) = self.avatars.get_mut(comment_idx) {
+                let protocol = self
+                    .comments
+                    .get(entry.comment_index)
+                    .and_then(|c| author_key(c.member.as_ref()))
+                    .and_then(|key| self.avatars.get_mut(&key).map(|p| p as *mut _));
+                // SAFETY: protocol points into self.avatars, which we borrow
+                // mutably only here; no other aliasing borrow is live.
+                if let Some(protocol) = protocol.map(|p| unsafe { &mut *p }) {
                     use ratatui_image::StatefulImage;
                     frame.render_stateful_widget(StatefulImage::new(), avatar_rect, protocol);
                 } else {
@@ -832,19 +883,43 @@ impl CommentList {
 
         // Avatar is rendered by the caller (needs mutable protocol state).
 
-        // Message lines (wrapped)
-        let lines = wrap_lines(comment.message(), content_width);
-        for (li, line_text) in lines.iter().enumerate() {
+        // Message lines (wrapped; emote-aware when the API provides emotes)
+        let segments = comment.message_segments();
+        let has_emotes = segments
+            .iter()
+            .any(|seg| matches!(seg, crate::api::comment::Segment::Emote(_)));
+        let line_count = if has_emotes {
+            wrap_segments(&segments, content_width, theme).len()
+        } else {
+            wrap_lines(comment.message(), content_width).len()
+        };
+        let msg_lines: Vec<Vec<Span<'static>>> = if has_emotes {
+            wrap_segments(&segments, content_width, theme)
+        } else {
+            wrap_lines(comment.message(), content_width)
+                .into_iter()
+                .map(|l| vec![Span::styled(l, Style::default().fg(theme.fg_primary))])
+                .collect()
+        };
+        for (li, spans) in msg_lines.iter().enumerate() {
             let y = row + 1 + li as u16;
             if y >= area.bottom() {
                 break;
             }
-            let mut span = Span::styled(line_text.clone(), Style::default().fg(theme.fg_primary));
-            if is_selected {
-                span = span.style(sel_style);
-            }
+            let spans: Vec<Span<'static>> = spans
+                .iter()
+                .map(|sp| {
+                    let mut s = sp.clone();
+                    if is_selected {
+                        s = s.style(sel_style);
+                    } else if s.style.fg.is_none() {
+                        s = s.style(Style::default().fg(theme.fg_primary));
+                    }
+                    s
+                })
+                .collect();
             frame.render_widget(
-                Paragraph::new(Line::from(vec![span])),
+                Paragraph::new(Line::from(spans)),
                 Rect {
                     x: text_x,
                     y,
@@ -855,7 +930,7 @@ impl CommentList {
         }
 
         // Action row: 时间 · IP属地 · 点赞 · 回复数 (web order)
-        let action_y = row + 1 + lines.len() as u16;
+        let action_y = row + 1 + line_count as u16;
         if action_y < area.bottom() {
             let liked = self.is_liked(comment.rpid);
             let like_icon = if liked {
@@ -969,21 +1044,43 @@ impl CommentList {
             },
         );
 
-        // Message
-        let lines = wrap_lines(reply.message(), content_width);
-        for (li, line_text) in lines.iter().enumerate() {
+        // Message (emote-aware)
+        let segments = reply.message_segments();
+        let has_emotes = segments
+            .iter()
+            .any(|seg| matches!(seg, crate::api::comment::Segment::Emote(_)));
+        let line_count = if has_emotes {
+            wrap_segments(&segments, content_width, theme).len()
+        } else {
+            wrap_lines(reply.message(), content_width).len()
+        };
+        let msg_lines: Vec<Vec<Span<'static>>> = if has_emotes {
+            wrap_segments(&segments, content_width, theme)
+        } else {
+            wrap_lines(reply.message(), content_width)
+                .into_iter()
+                .map(|l| vec![Span::styled(l, Style::default().fg(theme.fg_primary))])
+                .collect()
+        };
+        for (li, spans) in msg_lines.iter().enumerate() {
             let y = row + 1 + li as u16;
             if y >= area.bottom() {
                 break;
             }
-            let span = Span::styled(line_text.clone(), Style::default().fg(theme.fg_primary));
-            let line = Line::from(vec![span]).style(if is_selected {
-                sel_style
-            } else {
-                Style::default()
-            });
+            let spans: Vec<Span<'static>> = spans
+                .iter()
+                .map(|sp| {
+                    let mut s = sp.clone();
+                    if is_selected {
+                        s = s.style(sel_style);
+                    } else if s.style.fg.is_none() {
+                        s = s.style(Style::default().fg(theme.fg_primary));
+                    }
+                    s
+                })
+                .collect();
             frame.render_widget(
-                Paragraph::new(line),
+                Paragraph::new(Line::from(spans)),
                 Rect {
                     x: text_x,
                     y,
@@ -994,7 +1091,7 @@ impl CommentList {
         }
 
         // Action row: 时间 · IP属地 · 点赞
-        let action_y = row + 1 + lines.len() as u16;
+        let action_y = row + 1 + line_count as u16;
         if action_y < area.bottom() {
             let liked = self.is_liked(reply.rpid);
             let like_icon = if liked {
@@ -1208,6 +1305,82 @@ pub fn truncate_width(text: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn message_segments_split_known_emotes() {
+        let item: crate::api::comment::CommentItem = serde_json::from_value(serde_json::json!({
+            "rpid": 1, "oid": 1, "mid": 2, "parent": 0,
+            "content": {
+                "message": "好活(ATTENTION)当赏(ATTENTION)持续关注",
+                "emote": {"(ATTENTION)": {"text": "(ATTENTION)", "url": "https://i0.hdslb.com/bfs/emote/1.png"}}
+            }
+        }))
+        .unwrap();
+        let segs = item.message_segments();
+        assert_eq!(
+            segs,
+            vec![
+                crate::api::comment::Segment::Text("好活"),
+                crate::api::comment::Segment::Emote("(ATTENTION)"),
+                crate::api::comment::Segment::Text("当赏"),
+                crate::api::comment::Segment::Emote("(ATTENTION)"),
+                crate::api::comment::Segment::Text("持续关注"),
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_brackets_stay_plain_text() {
+        let item: crate::api::comment::CommentItem = serde_json::from_value(serde_json::json!({
+            "rpid": 1, "oid": 1, "mid": 2, "parent": 0,
+            "content": {"message": "笑死(不存在的)"}
+        }))
+        .unwrap();
+        assert_eq!(
+            item.message_segments(),
+            vec![crate::api::comment::Segment::Text("笑死(不存在的)")]
+        );
+    }
+
+    #[test]
+    fn sort_label_follows_state() {
+        let mut list = CommentList::new();
+        assert_eq!(list.sort_label(), "最热");
+        list.sort_newest = true;
+        assert_eq!(list.sort_label(), "最新");
+    }
+
+    #[test]
+    fn avatar_loader_keys_by_author_not_index() {
+        use crate::api::comment::CommentMember;
+        let member_a = CommentMember {
+            mid: Some("100".into()),
+            uname: Some("甲".into()),
+            avatar: None,
+            level_info: None,
+        };
+        let member_b = CommentMember {
+            mid: Some("200".into()),
+            uname: Some("乙".into()),
+            avatar: None,
+            level_info: None,
+        };
+        let key_a = author_key(Some(&member_a)).unwrap();
+        let key_b = author_key(Some(&member_b)).unwrap();
+        // Different authors never collide, so a refreshed/reordered list
+        // cannot show 甲's avatar under 乙's name.
+        assert_ne!(key_a, key_b);
+        // Same author keeps the same key across reloads.
+        assert_eq!(key_a, author_key(Some(&member_a)).unwrap());
+        // Missing identity yields no key (placeholder glyph is used).
+        let anon = CommentMember {
+            mid: None,
+            uname: None,
+            avatar: None,
+            level_info: None,
+        };
+        assert_eq!(author_key(Some(&anon)), None);
+    }
 
     #[test]
     fn wrap_respects_cjk_width() {

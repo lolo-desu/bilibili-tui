@@ -104,3 +104,14 @@ pub const REPLY_ARROW: &str = "\u{f064}"; // nf-fa-share
 pub const SELECTOR: &str = "\u{f105}";
 /// Spinner (nf-fa-spinner) - use with animation-less static frame
 pub const SPINNER: &str = "\u{f110}";
+
+// Settings section icons
+pub const KEYBOARD: &str = "\u{f11c}"; // nf-fa-keyboard
+pub const SLIDERS: &str = "\u{f1de}"; // nf-fa-sliders
+// Layout / sort icons
+pub const GRID: &str = "\u{f00a}"; // nf-fa-th (3x3 grid)
+pub const SORT_AMT: &str = "\u{f160}"; // nf-fa-sort-amount-asc
+pub const FIRE_ALT: &str = "\u{f7e4}"; // nf-fa-fire_alt
+pub const CLOCK_O: &str = "\u{f017}"; // nf-fa-clock_o
+// Emote / smiley
+pub const SMILE: &str = "\u{f118}"; // nf-fa-smile_o
