@@ -1,6 +1,9 @@
 mod article_detail;
 mod bangumi;
 mod bangumi_detail;
+pub mod comment_list;
+pub mod icons;
+pub(crate) mod image_picker;
 mod dynamic;
 mod dynamic_detail;
 mod favorites;

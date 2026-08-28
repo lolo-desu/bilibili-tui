@@ -252,6 +252,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "image",
+ "libc",
  "md5",
  "opaline",
  "qrcode",
@@ -267,6 +268,8 @@ dependencies = [
  "tokio-util",
  "tui-big-text",
  "tui-qrcode",
+ "unicode-width",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
