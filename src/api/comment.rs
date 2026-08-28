@@ -108,6 +108,44 @@ impl CommentItem {
             .unwrap_or("")
     }
 
+    /// Number of visual lines this message occupies at `width` columns,
+    /// accounting for emote spans (a token may wrap onto its own line).
+    pub fn message_line_count(&self, width: usize) -> usize {
+        let segments = self.message_segments();
+        if segments.iter().any(|s| matches!(s, Segment::Emote(_))) {
+            // approximating the same layout as comment_list::wrap_segments:
+            // sum wrapped text lines plus one per emote that starts a new row
+            let mut count = 0usize;
+            let mut col = 0usize;
+            for seg in &segments {
+                match seg {
+                    Segment::Text(t) => {
+                        for line in crate::ui::comment_list::wrap_lines(t, width) {
+                            let w = line.chars().count();
+                            if col > 0 && col + w > width {
+                                count += 1;
+                                col = 0;
+                            }
+                            col += w;
+                        }
+                        count += 1;
+                    }
+                    Segment::Emote(token) => {
+                        let w = format!("{}{} ", "\u{f118}", token).chars().count();
+                        if col + w > width && col > 0 {
+                            count += 1;
+                            col = 0;
+                        }
+                        col += w;
+                    }
+                }
+            }
+            count.max(1)
+        } else {
+            crate::ui::comment_list::wrap_lines(self.message(), width).len()
+        }
+    }
+
     /// Message split into plain-text and emote segments (in order).
     /// Emote tokens like "(闹钟)" that exist in `content.emote` become
     /// `Segment::Emote(token)`; unknown brackets stay plain text.
@@ -119,9 +157,9 @@ impl CommentItem {
         };
         let mut segments = Vec::new();
         let mut rest = message;
-        while let Some(open) = rest.find('(') {
-            // find matching close bracket
-            if let Some(close_rel) = rest[open..].find(')') {
+        while let Some(open) = rest.find('[') {
+            // find the matching close bracket (basic emotes are "[名]")
+            if let Some(close_rel) = rest[open..].find(']') {
                 let close = open + close_rel;
                 let token = &rest[open..=close];
                 if emotes.contains_key(token) {
@@ -132,7 +170,7 @@ impl CommentItem {
                     rest = &rest[close + 1..];
                     continue;
                 }
-                // not a known emote: keep scanning after this '('
+                // not a known emote: keep scanning after this '['
                 let advance = open + 1;
                 segments.push(Segment::Text(&rest[..advance]));
                 rest = &rest[advance..];

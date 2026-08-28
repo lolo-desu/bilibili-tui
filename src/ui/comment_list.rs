@@ -219,28 +219,44 @@ fn wrap_segments(
     theme: &Theme,
 ) -> Vec<Vec<Span<'static>>> {
     let mut lines: Vec<Vec<Span<'static>>> = vec![Vec::new()];
+    let mut col = 0usize;
     for seg in segments {
         match seg {
             crate::api::comment::Segment::Text(t) => {
                 for line in wrap_lines(t, width) {
-                    lines.push(vec![Span::styled(line.to_string(), Style::default())]);
+                    let line_w = line.chars().count();
+                    if col > 0 && !lines.last().is_some_and(|l| l.is_empty()) {
+                        // this text continues after an emote on the same row;
+                        // if it doesn't fit, move it to a fresh line
+                        if col + line_w > width {
+                            lines.push(Vec::new());
+                            col = 0;
+                        }
+                    }
+                    lines
+                        .last_mut()
+                        .unwrap()
+                        .push(Span::styled(line.to_string(), Style::default()));
+                    col += line_w;
                 }
             }
             crate::api::comment::Segment::Emote(token) => {
                 let styled = format!("{}{} ", icons::SMILE, token);
-                if lines.len() == 1 && lines[0].is_empty() {
-                    lines[0].push(Span::styled(
-                        styled,
-                        Style::default().fg(theme.bilibili_cyan),
-                    ));
-                } else {
-                    lines.push(vec![Span::styled(
-                        styled,
-                        Style::default().fg(theme.bilibili_cyan),
-                    )]);
+                let w = styled.chars().count();
+                if col + w > width && col > 0 {
+                    lines.push(Vec::new());
+                    col = 0;
                 }
+                lines.last_mut().unwrap().push(Span::styled(
+                    styled,
+                    Style::default().fg(theme.bilibili_cyan),
+                ));
+                col += w;
             }
         }
+    }
+    if lines.len() == 1 && lines[0].is_empty() {
+        lines[0].push(Span::styled(String::new(), Style::default()));
     }
     lines
 }
@@ -460,7 +476,7 @@ impl CommentList {
                 });
                 line += 1;
             }
-            let msg_lines = wrap_lines(comment.message(), content_width).len().max(1);
+            let msg_lines = comment.message_line_count(content_width).max(1);
             let card_height = 1 + msg_lines + 1 + CARD_TRAIL_BLANK as usize; // header+msg+actions+blank
             entries.push(Entry {
                 kind: EntryKind::Comment,
@@ -475,8 +491,7 @@ impl CommentList {
             if is_expanded {
                 if let Some(replies) = self.replies.get(&comment.rpid) {
                     for (ri, reply) in replies.iter().enumerate() {
-                        let reply_msg_lines =
-                            wrap_lines(reply.message(), content_width).len().max(1);
+                        let reply_msg_lines = reply.message_line_count(content_width).max(1);
                         let height = 1 + reply_msg_lines + 1 + 1; // header+msg+actions+blank
                         entries.push(Entry {
                             kind: EntryKind::Reply,
@@ -888,11 +903,7 @@ impl CommentList {
         let has_emotes = segments
             .iter()
             .any(|seg| matches!(seg, crate::api::comment::Segment::Emote(_)));
-        let line_count = if has_emotes {
-            wrap_segments(&segments, content_width, theme).len()
-        } else {
-            wrap_lines(comment.message(), content_width).len()
-        };
+        let line_count = comment.message_line_count(content_width).max(1);
         let msg_lines: Vec<Vec<Span<'static>>> = if has_emotes {
             wrap_segments(&segments, content_width, theme)
         } else {
@@ -1049,11 +1060,7 @@ impl CommentList {
         let has_emotes = segments
             .iter()
             .any(|seg| matches!(seg, crate::api::comment::Segment::Emote(_)));
-        let line_count = if has_emotes {
-            wrap_segments(&segments, content_width, theme).len()
-        } else {
-            wrap_lines(reply.message(), content_width).len()
-        };
+        let line_count = reply.message_line_count(content_width).max(1);
         let msg_lines: Vec<Vec<Span<'static>>> = if has_emotes {
             wrap_segments(&segments, content_width, theme)
         } else {
@@ -1311,8 +1318,8 @@ mod tests {
         let item: crate::api::comment::CommentItem = serde_json::from_value(serde_json::json!({
             "rpid": 1, "oid": 1, "mid": 2, "parent": 0,
             "content": {
-                "message": "好活(ATTENTION)当赏(ATTENTION)持续关注",
-                "emote": {"(ATTENTION)": {"text": "(ATTENTION)", "url": "https://i0.hdslb.com/bfs/emote/1.png"}}
+                "message": "好活[大哭]当赏[大哭]持续关注",
+                "emote": {"[大哭]": {"text": "[大哭]", "url": "https://i0.hdslb.com/bfs/emote/1.png"}}
             }
         }))
         .unwrap();
@@ -1321,9 +1328,9 @@ mod tests {
             segs,
             vec![
                 crate::api::comment::Segment::Text("好活"),
-                crate::api::comment::Segment::Emote("(ATTENTION)"),
+                crate::api::comment::Segment::Emote("[大哭]"),
                 crate::api::comment::Segment::Text("当赏"),
-                crate::api::comment::Segment::Emote("(ATTENTION)"),
+                crate::api::comment::Segment::Emote("[大哭]"),
                 crate::api::comment::Segment::Text("持续关注"),
             ]
         );
@@ -1333,12 +1340,12 @@ mod tests {
     fn unknown_brackets_stay_plain_text() {
         let item: crate::api::comment::CommentItem = serde_json::from_value(serde_json::json!({
             "rpid": 1, "oid": 1, "mid": 2, "parent": 0,
-            "content": {"message": "笑死(不存在的)"}
+            "content": {"message": "笑死[不存在的]"}
         }))
         .unwrap();
         assert_eq!(
             item.message_segments(),
-            vec![crate::api::comment::Segment::Text("笑死(不存在的)")]
+            vec![crate::api::comment::Segment::Text("笑死[不存在的]")]
         );
     }
 
