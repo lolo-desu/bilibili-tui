@@ -65,9 +65,7 @@ impl LoginPage {
 
     fn render_character_qrcode(frame: &mut Frame, area: Rect, url: &str, theme: &Theme) {
         let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_unfocused))
+            .style(Style::default().bg(theme.bg_card))
             .title(Span::styled(
                 " 字符二维码 ",
                 Style::default().fg(theme.fg_secondary),
@@ -102,9 +100,7 @@ impl LoginPage {
 
     fn render_image_qrcode(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_unfocused))
+            .style(Style::default().bg(theme.bg_card))
             .title(Span::styled(
                 " 图片二维码 ",
                 Style::default().fg(theme.fg_secondary),
@@ -241,9 +237,7 @@ impl Component for LoginPage {
         let title = Paragraph::new(title_line)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_subtle))
+                    .style(Style::default().bg(theme.bg_card))
                     .title(Span::styled(
                         " Login ",
                         Style::default()
@@ -256,9 +250,7 @@ impl Component for LoginPage {
 
         // QR code area
         let qr_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_unfocused))
+            .style(Style::default().bg(theme.bg_card))
             .title(Span::styled(
                 " 扫码登录 ",
                 Style::default().fg(theme.fg_secondary),
@@ -304,9 +296,7 @@ impl Component for LoginPage {
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_unfocused))
+                    .style(Style::default().bg(theme.bg_card))
                     .title(Span::styled(
                         " 状态 ",
                         Style::default().fg(theme.fg_secondary),

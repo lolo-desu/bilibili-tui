@@ -1,7 +1,7 @@
 //! Dynamic detail page for viewing image/text dynamics
 
 use super::icons;
-use super::{Component, Theme, shortcut_footer};
+use super::{Component, Theme, panel_block, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::comment::CommentItem;
 use crate::api::dynamic::DynamicItem;
@@ -362,12 +362,7 @@ impl Component for DynamicDetailPage {
                     .add_modifier(Modifier::BOLD),
             )
             .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_unfocused)),
-            );
+            .block(panel_block(theme, None, false));
         frame.render_widget(title, chunks[0]);
 
         // Main content
@@ -376,24 +371,14 @@ impl Component for DynamicDetailPage {
             let loading = Paragraph::new(loading_text)
                 .style(Style::default().fg(theme.fg_secondary))
                 .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(theme.border_focused)),
-                );
+                .block(panel_block(theme, None, false));
             frame.render_widget(loading, chunks[1]);
         } else if let Some(ref err) = self.error_message {
             let error_text = format!("错误: {}", err);
             let error = Paragraph::new(error_text)
                 .style(Style::default().fg(Color::Red))
                 .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(Color::Red)),
-                );
+                .block(panel_block(theme, None, false));
             frame.render_widget(error, chunks[1]);
         } else {
             self.draw_main_layout(frame, chunks[1], theme);
@@ -402,9 +387,7 @@ impl Component for DynamicDetailPage {
         // Input box (only in input mode)
         if self.input_mode {
             let input_block = Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme.bilibili_pink))
+                .style(Style::default().bg(theme.bg_secondary))
                 .title(Span::styled(
                     format!(" {} 发表评论 ", icons::EDIT),
                     Style::default()
@@ -663,15 +646,18 @@ impl DynamicDetailPage {
     }
 
     fn draw_images(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_focused))
-            .title(format!(
-                " 图片 {}/{} [h/l 切换] ",
-                self.current_image_index + 1,
-                self.image_urls.len()
-            ));
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
+                format!(
+                    " 图片 {}/{} [h/l 切换] ",
+                    self.current_image_index + 1,
+                    self.image_urls.len()
+                ),
+                Style::default().fg(theme.bilibili_pink),
+            ))),
+            true,
+        );
 
         let inner_area = block.inner(area);
         frame.render_widget(block, area);
@@ -708,13 +694,14 @@ impl DynamicDetailPage {
 
         let content = Paragraph::new(display_lines)
             .style(Style::default().fg(theme.fg_primary))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_focused))
-                    .title(" 动态详情 "),
-            )
+            .block(panel_block(
+                theme,
+                Some(Line::from(Span::styled(
+                    " 动态详情 ",
+                    Style::default().fg(theme.bilibili_pink),
+                ))),
+                false,
+            ))
             .wrap(Wrap { trim: false });
         frame.render_widget(content, area);
     }
@@ -739,13 +726,14 @@ impl DynamicDetailPage {
 
         let comments = Paragraph::new(display_lines)
             .style(Style::default().fg(theme.fg_primary))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_focused))
-                    .title(format!(" 评论 ({}) ", self.comments.len())),
-            )
+            .block(panel_block(
+                theme,
+                Some(Line::from(Span::styled(
+                    format!(" 评论 ({}) ", self.comments.len()),
+                    Style::default().fg(theme.bilibili_pink),
+                ))),
+                false,
+            ))
             .wrap(Wrap { trim: false });
         frame.render_widget(comments, area);
     }

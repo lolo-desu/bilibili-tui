@@ -1,7 +1,7 @@
 //! Settings page with theme selection, keybinding display, and account management
 
 use super::icons;
-use super::{Component, DEFAULT_THEME_ID, Theme, ThemeChoice};
+use super::{Component, DEFAULT_THEME_ID, Theme, ThemeChoice, panel_block};
 use crate::application::AppAction;
 use crate::storage::{DanmakuConfig, Keybindings, VideoQuality};
 use ratatui::{crossterm::event::KeyCode, prelude::*, widgets::*};
@@ -55,8 +55,6 @@ pub struct SettingsPage {
     pub editing_keybind: bool,
     editing_danmaku: bool,
     danmaku_input: String,
-    theme_scroll: usize,
-    keybind_scroll: usize,
 }
 
 impl SettingsPage {
@@ -91,8 +89,6 @@ impl SettingsPage {
             editing_keybind: false,
             editing_danmaku: false,
             danmaku_input: String::new(),
-            theme_scroll: 0,
-            keybind_scroll: 0,
         }
     }
 
@@ -547,16 +543,16 @@ impl SettingsPage {
     }
 
     fn draw_danmaku_section(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 弹幕设置 ", icons::COMMENT),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ));
+            ))),
+            false,
+        );
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -607,25 +603,27 @@ impl SettingsPage {
         if self.editing_danmaku {
             let input = Paragraph::new(format!("{}▏", self.danmaku_input)).block(
                 Block::default()
-                    .borders(Borders::ALL)
-                    .title(" 输入新值 ")
-                    .border_style(Style::default().fg(theme.fg_accent)),
+                    .style(Style::default().bg(theme.bg_secondary))
+                    .title(Line::from(Span::styled(
+                        " 输入新值 ",
+                        Style::default().fg(theme.fg_accent),
+                    ))),
             );
             frame.render_widget(input, chunks[1]);
         }
     }
 
     fn draw_playback_section(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 " ▶  播放设置 ",
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ));
+            ))),
+            false,
+        );
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -699,40 +697,25 @@ impl SettingsPage {
         frame.render_widget(List::new(items), inner);
     }
 
-    fn draw_theme_section(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+    fn draw_theme_section(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 选择主题 ", icons::PAINT),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ));
+            ))),
+            false,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        if inner.height == 0 || inner.width == 0 {
-            return;
-        }
-
-        // Keep selected visible with a scroll window
-        let visible = inner.height as usize;
-        if self.selected_theme_index < self.theme_scroll {
-            self.theme_scroll = self.selected_theme_index;
-        } else if self.selected_theme_index >= self.theme_scroll + visible {
-            self.theme_scroll = self.selected_theme_index - visible + 1;
-        }
-        let max_scroll = self.theme_choices.len().saturating_sub(visible);
-        self.theme_scroll = self.theme_scroll.min(max_scroll);
 
         let items: Vec<ListItem> = self
             .theme_choices
             .iter()
             .enumerate()
-            .skip(self.theme_scroll)
-            .take(visible)
             .map(|(idx, choice)| {
                 let is_selected = idx == self.selected_theme_index;
                 let is_current = choice.id == self.current_theme_id;
@@ -758,63 +741,27 @@ impl SettingsPage {
             .collect();
 
         frame.render_widget(List::new(items), inner);
-
-        // Scroll hint when there are more items
-        if self.theme_choices.len() > visible {
-            let hint = format!(" {}/{} ", self.selected_theme_index + 1, self.theme_choices.len());
-            let hint_area = Rect {
-                x: inner.x + inner.width.saturating_sub(hint.len() as u16 + 1),
-                y: inner.y + inner.height.saturating_sub(1),
-                width: (hint.len() as u16 + 1).min(inner.width),
-                height: 1,
-            };
-            frame.render_widget(
-                Paragraph::new(hint).style(Style::default().fg(theme.fg_muted)),
-                hint_area,
-            );
-        }
     }
 
-    fn draw_keybindings_section(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
-                " ⌨️ 快捷键 ",
+    fn draw_keybindings_section(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
+                format!(" {} 快捷键 ", icons::KEYBOARD),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ));
+            ))),
+            false,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
-
-        let chunks = Layout::vertical([
-            Constraint::Min(5),
-            Constraint::Length(if self.editing_keybind { 3 } else { 0 }),
-        ])
-        .split(inner);
-
-        let visible = chunks[0].height as usize;
-        // Compute scroll without holding `labels` borrow
-        let label_count = self.keybind_labels().len();
-        if visible > 0 {
-            if self.selected_keybind_index < self.keybind_scroll {
-                self.keybind_scroll = self.selected_keybind_index;
-            } else if self.selected_keybind_index >= self.keybind_scroll + visible {
-                self.keybind_scroll = self.selected_keybind_index - visible + 1;
-            }
-            let max_scroll = label_count.saturating_sub(visible);
-            self.keybind_scroll = self.keybind_scroll.min(max_scroll);
-        }
 
         let labels = self.keybind_labels();
         let items: Vec<ListItem> = labels
             .iter()
             .enumerate()
-            .skip(self.keybind_scroll)
-            .take(chunks[0].height as usize)
             .map(|(idx, (label, key))| {
                 let is_selected = idx == self.selected_keybind_index;
                 let style = if is_selected {
@@ -840,28 +787,39 @@ impl SettingsPage {
             })
             .collect();
 
+        let chunks = Layout::vertical([
+            Constraint::Min(5),
+            Constraint::Length(if self.editing_keybind { 3 } else { 0 }),
+        ])
+        .split(inner);
         frame.render_widget(List::new(items), chunks[0]);
         if self.editing_keybind {
             let label = labels[self.selected_keybind_index].0;
             frame.render_widget(
-                Paragraph::new(format!("正在设置「{label}」：请按新的快捷键"))
-                    .block(Block::default().borders(Borders::ALL).title(" 快捷键输入 ")),
+                Paragraph::new(format!("正在设置「{label}」：请按新的快捷键")).block(
+                    Block::default()
+                        .style(Style::default().bg(theme.bg_secondary))
+                        .title(Line::from(Span::styled(
+                            " 快捷键输入 ",
+                            Style::default().fg(theme.fg_accent),
+                        ))),
+                ),
                 chunks[1],
             );
         }
     }
 
     fn draw_account_section(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 账户 ", icons::USER),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ));
+            ))),
+            false,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -908,9 +866,11 @@ impl SettingsPage {
             )
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(action_color)),
+                    .style(Style::default().bg(theme.bg_secondary))
+                    .title(Line::from(Span::styled(
+                        "  ",
+                        Style::default().fg(action_color),
+                    ))),
             )
             .alignment(Alignment::Center);
         frame.render_widget(action_btn, chunks[1]);

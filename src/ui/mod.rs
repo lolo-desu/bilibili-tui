@@ -45,6 +45,7 @@ use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyModifiers, MouseEvent},
     prelude::{Color, Line, Modifier, Rect, Span, Style},
+    widgets::Block,
 };
 
 /// Build the centered, bracketed shortcut footer used across list pages.
@@ -69,6 +70,23 @@ pub fn shortcut_footer(
         spans.push(Span::styled(label, muted));
     }
     Line::from(spans)
+}
+
+/// Build a border-less panel that separates content with a background color
+/// block (opencode style) instead of strong border lines. A faint title row
+/// sits at the top inside the panel; `focused` lifts the background to the
+/// highlight tone so focus reads as a color change, not a line.
+pub fn panel_block<'a>(theme: &Theme, title: Option<Line<'a>>, focused: bool) -> Block<'a> {
+    let bg = if focused {
+        theme.bg_highlight
+    } else {
+        theme.bg_card
+    };
+    let mut block = Block::default().style(Style::default().bg(bg));
+    if let Some(title) = title {
+        block = block.title(title.style(Style::default().fg(theme.fg_muted)));
+    }
+    block
 }
 
 /// UI Component trait

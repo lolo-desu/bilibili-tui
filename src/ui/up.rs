@@ -14,7 +14,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap},
+    widgets::{Block, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -250,9 +250,6 @@ impl UpPage {
 
         // Banner block with soft panel background (web user-space style)
         let banner = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
             .style(Style::default().bg(theme.bg_card))
             .title(Span::styled(
                 format!(" {} UP主空间 ", icons::USER),
@@ -356,7 +353,7 @@ impl Component for UpPage {
         let tabs = Tabs::new(vec!["1 投稿", "2 收藏夹"])
             .select(if self.tab == UpTab::Videos { 0 } else { 1 })
             .highlight_style(Style::default().fg(theme.bilibili_pink))
-            .block(Block::default().borders(Borders::ALL).title(format!(
+            .block(Block::default().title(format!(
                 " {} · {play_order} ",
                 if self.tab == UpTab::Videos {
                     sort

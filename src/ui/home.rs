@@ -77,10 +77,11 @@ impl HomePage {
         let list = List::new(items)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_subtle))
-                    .title(" 首页 "),
+                    .style(Style::default().bg(theme.bg_secondary))
+                    .title(Line::from(Span::styled(
+                        " 首页 ",
+                        Style::default().fg(theme.fg_muted),
+                    ))),
             )
             .highlight_symbol("");
         let mut state = ListState::default().with_selected(Some(self.selected_source));
@@ -91,7 +92,7 @@ impl HomePage {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),
+                Constraint::Length(1),
                 Constraint::Min(10),
                 Constraint::Length(2),
             ])
@@ -109,12 +110,7 @@ impl HomePage {
             } else {
                 Span::raw("")
             },
-        ]))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded),
-        );
+        ]));
         frame.render_widget(header, chunks[0]);
 
         if self.loading {
@@ -853,21 +849,6 @@ impl HomePage {
         is_selected: bool,
         theme: &Theme,
     ) {
-        // Enhanced border styling
-        let (border_style, border_type) = if is_selected {
-            (
-                Style::default()
-                    .fg(theme.border_focused)
-                    .add_modifier(Modifier::BOLD),
-                BorderType::Rounded,
-            )
-        } else {
-            (
-                Style::default().fg(theme.border_unfocused),
-                BorderType::Rounded,
-            )
-        };
-
         let title_span = if is_selected {
             Span::styled(
                 " ▶ ",
@@ -879,10 +860,13 @@ impl HomePage {
             Span::raw("")
         };
 
+        let bg = if is_selected {
+            theme.bg_highlight
+        } else {
+            theme.bg_card
+        };
         let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(border_type)
-            .border_style(border_style)
+            .style(Style::default().bg(bg))
             .title(title_span);
 
         let inner = block.inner(area);

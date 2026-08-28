@@ -1,4 +1,4 @@
-use super::{Component, Theme, VideoCard, VideoCardGrid, shortcut_footer};
+use super::{Component, Theme, VideoCard, VideoCardGrid, panel_block, shortcut_footer};
 use crate::api::favorite::{
     CollectedFolder, FavoriteFolder, FavoriteResourceData, FavoriteSource, SeasonArchivesData,
     WatchLaterData,
@@ -10,7 +10,8 @@ use ratatui::{
     crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind},
     layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
     style::{Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    text::{Line, Span},
+    widgets::{Block, List, ListItem, ListState, Paragraph},
 };
 use std::time::Instant;
 
@@ -277,7 +278,14 @@ impl Component for FavoritesPage {
         let mut state = ListState::default().with_selected(Some(state_index));
         frame.render_stateful_widget(
             List::new(items)
-                .block(Block::default().borders(Borders::ALL).title(" 收藏 "))
+                .block(
+                    Block::default()
+                        .style(Style::default().bg(theme.bg_secondary))
+                        .title(Line::from(Span::styled(
+                            " 收藏 ",
+                            Style::default().fg(theme.fg_muted),
+                        ))),
+                )
                 .highlight_symbol("")
                 .highlight_style(if self.focus_sources {
                     Style::default().fg(theme.bilibili_pink)
@@ -303,7 +311,7 @@ impl Component for FavoritesPage {
                 self.videos.cards.len(),
                 self.total
             ))
-            .block(Block::default().borders(Borders::ALL)),
+            .block(panel_block(theme, None, false)),
             right[0],
         );
         if self.loading {

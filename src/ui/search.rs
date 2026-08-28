@@ -2,7 +2,7 @@
 
 use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
-use super::{Component, Theme, shortcut_footer};
+use super::{Component, Theme, panel_block, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::search::{HotwordItem, SearchVideoItem};
 use crate::application::AppAction;
@@ -178,14 +178,14 @@ impl SearchPage {
     }
 
     fn draw_hot_list(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 " 热搜榜 ",
                 Style::default().fg(theme.bilibili_pink),
-            ));
+            ))),
+            false,
+        );
 
         if self.hotword_loading {
             let loading = Paragraph::new("⏳ 正在获取热搜...")
@@ -273,13 +273,11 @@ impl Component for SearchPage {
         };
 
         let input_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(if self.input_mode {
-                Style::default().fg(theme.bilibili_pink)
+            .style(Style::default().bg(if self.input_mode {
+                theme.bg_highlight
             } else {
-                Style::default().fg(theme.border_subtle)
-            })
+                theme.bg_secondary
+            }))
             .title(Span::styled(
                 format!(" {} 搜索视频 ", icons::SEARCH),
                 Style::default().fg(theme.bilibili_pink),
@@ -298,27 +296,20 @@ impl Component for SearchPage {
             let loading = Paragraph::new("⏳ 搜索中...")
                 .style(Style::default().fg(theme.warning))
                 .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(theme.border_unfocused))
-                        .title(Span::styled(
-                            format!(" 结果 ({}) ", self.total_results),
-                            Style::default().fg(theme.fg_secondary),
-                        )),
-                );
+                .block(panel_block(
+                    theme,
+                    Some(Line::from(Span::styled(
+                        format!(" 结果 ({}) ", self.total_results),
+                        Style::default().fg(theme.fg_secondary),
+                    ))),
+                    false,
+                ));
             frame.render_widget(loading, chunks[1]);
         } else if let Some(error) = &self.error_message {
             let error_widget = Paragraph::new(format!("{} {}", icons::ERROR, error))
                 .style(Style::default().fg(theme.error))
                 .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(theme.border_unfocused)),
-                );
+                .block(panel_block(theme, None, false));
             frame.render_widget(error_widget, chunks[1]);
         } else if self.grid.cards.is_empty() {
             let empty = Paragraph::new(if self.query.is_empty() {
@@ -328,12 +319,7 @@ impl Component for SearchPage {
             })
             .style(Style::default().fg(theme.fg_secondary))
             .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_unfocused)),
-            );
+            .block(panel_block(theme, None, false));
             frame.render_widget(empty, chunks[1]);
         } else {
             // Render with header
@@ -349,12 +335,7 @@ impl Component for SearchPage {
                     Span::raw("")
                 },
             ]))
-            .block(
-                Block::default()
-                    .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_subtle)),
-            );
+            .block(Block::default().style(Style::default().bg(theme.bg_secondary)));
 
             let header_area = Rect {
                 height: 2,

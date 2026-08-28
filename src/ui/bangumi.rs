@@ -2,7 +2,7 @@
 
 use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
-use super::{Component, Theme, shortcut_footer};
+use super::{Component, Theme, panel_block, shortcut_footer};
 use crate::api::bangumi::SeasonRankItem;
 use crate::api::client::ApiClient;
 use crate::application::AppAction;
@@ -137,12 +137,7 @@ impl Component for BangumiPage {
                     .add_modifier(Modifier::BOLD),
             ),
         ]))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme.border_subtle)),
-        )
+        .block(panel_block(theme, None, false))
         .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
 

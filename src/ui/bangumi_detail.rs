@@ -1,7 +1,7 @@
 //! Bangumi detail page showing season info and episode list
 
 use super::icons;
-use super::{Component, Theme, shortcut_footer};
+use super::{Component, Theme, panel_block, shortcut_footer};
 use crate::api::bangumi::{BangumiEpisode, SeasonResult};
 use crate::api::client::ApiClient;
 use crate::application::AppAction;
@@ -139,14 +139,14 @@ impl BangumiDetailPage {
     }
 
     fn render_info(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 番剧信息 ", icons::TV),
                 Style::default().fg(theme.bilibili_pink),
-            ));
+            ))),
+            false,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -235,14 +235,14 @@ impl BangumiDetailPage {
             return;
         }
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 选集 ", icons::LIST),
                 Style::default().fg(theme.bilibili_pink),
-            ));
+            ))),
+            false,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);

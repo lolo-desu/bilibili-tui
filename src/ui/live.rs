@@ -1,7 +1,7 @@
 //! Live streaming recommendations page with grid layout
 
 use super::icons;
-use super::{Component, Theme, shortcut_footer};
+use super::{Component, Theme, panel_block, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::live::LiveRoom;
 use crate::application::AppAction;
@@ -331,18 +331,16 @@ impl Component for LivePage {
 
         // Header
         let header = Paragraph::new(format!("{} 关注直播优先 · B站推荐", icons::TV))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_subtle))
-                    .title(Span::styled(
-                        " 直播 ",
-                        Style::default()
-                            .fg(theme.fg_accent)
-                            .add_modifier(Modifier::BOLD),
-                    )),
-            )
+            .block(panel_block(
+                theme,
+                Some(Line::from(Span::styled(
+                    " 直播 ",
+                    Style::default()
+                        .fg(theme.fg_accent)
+                        .add_modifier(Modifier::BOLD),
+                ))),
+                false,
+            ))
             .style(
                 Style::default()
                     .fg(theme.bilibili_pink)
@@ -603,10 +601,12 @@ impl LivePage {
             )
         };
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(border_type)
-            .border_style(border_style);
+        let _ = (border_style, border_type);
+        let block = Block::default().style(Style::default().bg(if is_selected {
+            theme.bg_highlight
+        } else {
+            theme.bg_card
+        }));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);

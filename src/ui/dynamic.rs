@@ -380,10 +380,11 @@ impl DynamicPage {
         let list = List::new(items)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border_subtle))
-                    .title(" 关注的UP主 "),
+                    .style(Style::default().bg(theme.bg_secondary))
+                    .title(Line::from(Span::styled(
+                        " 关注的UP主 ",
+                        Style::default().fg(theme.fg_muted),
+                    ))),
             )
             .highlight_symbol("")
             .highlight_style(Style::default().fg(if self.focus_up_list {
@@ -430,7 +431,7 @@ impl Component for DynamicPage {
                 Span::raw("")
             },
         ]))
-        .block(Block::default().borders(Borders::TOP | Borders::LEFT | Borders::RIGHT));
+        .block(Block::default());
         frame.render_widget(title, header_chunks[0]);
 
         let tabs = DynamicTab::all_tabs()
@@ -458,7 +459,11 @@ impl Component for DynamicPage {
             .collect::<Vec<_>>();
         frame.render_widget(
             Paragraph::new(Line::from(tabs))
-                .block(Block::default().borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT))
+                .block(
+                    Block::default()
+                        .borders(Borders::BOTTOM)
+                        .border_style(Style::default().fg(theme.border_subtle)),
+                )
                 .alignment(Alignment::Center),
             header_chunks[1],
         );

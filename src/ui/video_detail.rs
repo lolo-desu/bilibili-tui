@@ -4,7 +4,7 @@ use super::comment_list::CommentList;
 use super::comment_list::{CommentIntent, EntryKind};
 use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
-use super::{Component, Theme, shortcut_footer};
+use super::{Component, Theme, panel_block, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::video::{RelatedVideoItem, VideoInfo};
 use crate::application::AppAction;
@@ -290,14 +290,14 @@ impl VideoDetailPage {
     }
 
     fn render_video_info(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 视频信息 ", icons::PLAY),
                 Style::default().fg(theme.bilibili_pink),
-            ));
+            ))),
+            false,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -402,21 +402,13 @@ impl VideoDetailPage {
 
     fn render_comments(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let is_focused = self.focus == DetailFocus::Comments;
-        let border_style = if is_focused {
-            Style::default().fg(theme.border_focused)
-        } else {
-            Style::default().fg(theme.border_unfocused)
-        };
-
         let total = self.comment_list.comments.len();
         let more_hint = if self.comment_list.has_more { "+" } else { "" };
         let sort_icon = self.comment_list.sort_icon();
         let sort_label = self.comment_list.sort_label();
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(border_style)
-            .title(Line::from(vec![
+        let block = panel_block(
+            theme,
+            Some(Line::from(vec![
                 Span::styled(
                     format!(" {} 评论 {}{} ", icons::COMMENT, total, more_hint),
                     Style::default().fg(if is_focused {
@@ -434,7 +426,9 @@ impl VideoDetailPage {
                     }),
                 ),
                 Span::styled(" (t切换) ", Style::default().fg(theme.fg_muted)),
-            ]));
+            ])),
+            is_focused,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -443,24 +437,18 @@ impl VideoDetailPage {
 
     fn render_related(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let is_focused = self.focus == DetailFocus::Related;
-        let border_style = if is_focused {
-            Style::default().fg(theme.border_focused)
-        } else {
-            Style::default().fg(theme.border_unfocused)
-        };
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(border_style)
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 相关推荐 ", icons::TV),
                 Style::default().fg(if is_focused {
                     theme.bilibili_pink
                 } else {
                     theme.fg_muted
                 }),
-            ));
+            ))),
+            is_focused,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -498,29 +486,23 @@ impl VideoDetailPage {
 
     fn render_episodes(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let is_focused = self.focus == DetailFocus::Episodes;
-        let border_style = if is_focused {
-            Style::default().fg(theme.border_focused)
-        } else {
-            Style::default().fg(theme.border_unfocused)
-        };
-
         let pages = match self.get_pages() {
             Some(p) => p,
             None => return,
         };
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(border_style)
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 选集 ({}) ", icons::LIST, pages.len()),
                 Style::default().fg(if is_focused {
                     theme.bilibili_pink
                 } else {
                     theme.fg_muted
                 }),
-            ));
+            ))),
+            is_focused,
+        );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -612,21 +594,13 @@ impl Component for VideoDetailPage {
             let loading = Paragraph::new("⏳ 加载中...")
                 .style(Style::default().fg(theme.warning))
                 .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded),
-                );
+                .block(panel_block(theme, None, false));
             frame.render_widget(loading, chunks[1]);
         } else if let Some(error) = &self.error_message {
             let error_widget = Paragraph::new(format!("{} {}", icons::ERROR, error))
                 .style(Style::default().fg(theme.error))
                 .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded),
-                );
+                .block(panel_block(theme, None, false));
             frame.render_widget(error_widget, chunks[1]);
         } else {
             // Comments and Related split
@@ -660,9 +634,7 @@ impl Component for VideoDetailPage {
         // Input box (only in input mode)
         if self.input_mode {
             let input_block = Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme.bilibili_pink))
+                .style(Style::default().bg(theme.bg_secondary))
                 .title(Span::styled(
                     format!(" {} 发表评论 ", icons::EDIT),
                     Style::default()

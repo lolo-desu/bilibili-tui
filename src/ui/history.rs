@@ -1,7 +1,7 @@
 //! History page with watch history display in a grid layout with cover images
 
 use super::icons;
-use super::{Component, Theme, shortcut_footer};
+use super::{Component, Theme, panel_block, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::history::{HistoryCursor, HistoryItem, HistoryKey};
 use crate::application::AppAction;
@@ -463,17 +463,17 @@ impl Default for HistoryPage {
 impl Component for HistoryPage {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings) {
         // Main block
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(Span::styled(
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
                 format!(" {} 观看历史 ", icons::FEED),
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ))
-            .title_alignment(Alignment::Left);
+            ))),
+            false,
+        )
+        .title_alignment(Alignment::Left);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -789,14 +789,12 @@ impl HistoryPage {
             theme.border_subtle
         };
 
-        let mut block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(if is_selected {
-                BorderType::Thick
-            } else {
-                BorderType::Rounded
-            })
-            .border_style(Style::default().fg(border_color));
+        let _ = border_color;
+        let mut block = Block::default().style(Style::default().bg(if is_selected {
+            theme.bg_highlight
+        } else {
+            theme.bg_card
+        }));
         if is_marked {
             block = block.title(Span::styled(
                 " ✓ 已选择 ",
@@ -937,10 +935,11 @@ impl HistoryPage {
                 .style(Style::default().fg(theme.fg_primary))
                 .block(
                     Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(theme.warning))
-                        .title(" 删除历史记录 "),
+                        .style(Style::default().bg(theme.bg_secondary))
+                        .title(Span::styled(
+                            " 删除历史记录 ",
+                            Style::default().fg(theme.warning),
+                        )),
                 ),
             popup,
         );

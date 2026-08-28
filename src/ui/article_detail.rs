@@ -1,7 +1,7 @@
 //! Full-page article reader used by history entries.
 
 use super::icons;
-use super::{Component, Theme, shortcut_footer};
+use super::{Component, Theme, panel_block, shortcut_footer};
 use crate::api::{
     article::{ArticleBlock, ArticleData},
     comment::CommentItem,
@@ -127,11 +127,14 @@ impl ArticleDetailPage {
     }
 
     fn render_document(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(" 正文 ");
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
+                " 正文 ",
+                Style::default().fg(theme.bilibili_pink),
+            ))),
+            false,
+        );
         let inner = block.inner(area);
         frame.render_widget(block, area);
         self.visible_height = inner.height.max(1);
@@ -215,10 +218,11 @@ impl ArticleDetailPage {
         images: &mut ArticleImageState<'_>,
     ) {
         let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(format!(" {alt} "));
+            .style(Style::default().bg(theme.bg_secondary))
+            .title(Line::from(Span::styled(
+                format!(" {alt} "),
+                Style::default().fg(theme.fg_muted),
+            )));
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let Some(index) = images.urls.iter().position(|candidate| candidate == url) else {
@@ -237,11 +241,14 @@ impl ArticleDetailPage {
     }
 
     fn render_comments(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle))
-            .title(format!(" 评论 {} ", self.comments.len()));
+        let block = panel_block(
+            theme,
+            Some(Line::from(Span::styled(
+                format!(" 评论 {} ", self.comments.len()),
+                Style::default().fg(theme.bilibili_pink),
+            ))),
+            false,
+        );
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if self.comments.is_empty() {
@@ -328,7 +335,11 @@ impl Component for ArticleDetailPage {
                         .fg(theme.fg_primary)
                         .add_modifier(Modifier::BOLD),
                 )
-                .block(Block::default().borders(Borders::BOTTOM)),
+                .block(
+                    Block::default()
+                        .borders(Borders::BOTTOM)
+                        .border_style(Style::default().fg(theme.border_subtle)),
+                ),
             chunks[0],
         );
 

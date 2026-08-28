@@ -5,7 +5,7 @@ use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseEvent},
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Paragraph},
 };
 use std::io;
 
@@ -162,8 +162,15 @@ impl App {
             height: 3.min(area.height),
         };
         let message = Paragraph::new(error)
-            .style(Style::default().fg(Color::Red))
-            .block(Block::default().borders(Borders::ALL).title(" 播放错误 "));
+            .style(Style::default().fg(Color::Red).bg(self.theme.bg_secondary))
+            .block(
+                Block::default()
+                    .style(Style::default().bg(self.theme.bg_secondary))
+                    .title(Line::from(Span::styled(
+                        " 播放错误 ",
+                        Style::default().fg(Color::Red),
+                    ))),
+            );
         frame.render_widget(message, popup);
     }
 

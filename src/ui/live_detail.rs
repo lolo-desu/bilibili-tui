@@ -247,15 +247,13 @@ impl Component for LiveDetailPage {
         };
 
         let block = Block::default()
+            .style(Style::default().bg(theme.bg_card))
             .title(Span::styled(
                 title,
                 Style::default()
                     .fg(theme.bilibili_pink)
                     .add_modifier(Modifier::BOLD),
-            ))
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle));
+            ));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -372,9 +370,7 @@ impl LiveDetailPage {
                     .fg(theme.fg_secondary)
                     .add_modifier(Modifier::BOLD),
             ))
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle));
+            .style(Style::default().bg(theme.bg_card));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -440,9 +436,7 @@ impl LiveDetailPage {
                     .fg(theme.fg_secondary)
                     .add_modifier(Modifier::BOLD),
             ))
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle));
+            .style(Style::default().bg(theme.bg_card));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -496,9 +490,7 @@ impl LiveDetailPage {
                     .fg(theme.fg_secondary)
                     .add_modifier(Modifier::BOLD),
             ))
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_subtle));
+            .style(Style::default().bg(theme.bg_card));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);

@@ -60,19 +60,11 @@ impl VideoCard {
 
     /// Render a single video card
     pub fn render(&mut self, frame: &mut Frame, area: Rect, is_selected: bool, theme: &Theme) {
-        // Enhanced border styling - use Bilibili pink for selection
-        let (border_style, border_type) = if is_selected {
-            (
-                Style::default()
-                    .fg(theme.bilibili_pink)
-                    .add_modifier(Modifier::BOLD),
-                BorderType::Rounded,
-            )
+        // selection reads as background lift + pink marker, not a border
+        let bg = if is_selected {
+            theme.bg_highlight
         } else {
-            (
-                Style::default().fg(theme.border_subtle),
-                BorderType::Rounded,
-            )
+            theme.bg_card
         };
 
         // Card title shows selection indicator
@@ -88,9 +80,7 @@ impl VideoCard {
         };
 
         let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(border_type)
-            .border_style(border_style)
+            .style(Style::default().bg(bg))
             .title(title_span);
 
         let inner = block.inner(area);
@@ -169,14 +159,11 @@ impl VideoCard {
     }
 
     fn render_list(&mut self, frame: &mut Frame, area: Rect, is_selected: bool, theme: &Theme) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(if is_selected {
-                theme.bilibili_pink
-            } else {
-                theme.border_subtle
-            }));
+        let block = Block::default().style(Style::default().bg(if is_selected {
+            theme.bg_highlight
+        } else {
+            theme.bg_card
+        }));
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let chunks = Layout::default()
