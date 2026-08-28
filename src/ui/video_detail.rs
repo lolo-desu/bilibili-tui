@@ -1,9 +1,11 @@
 //! Video detail page showing video info, comments, and related videos
 
+use super::comment_list::CommentIntent;
+use super::comment_list::CommentList;
+use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
 use super::{Component, Theme, shortcut_footer};
 use crate::api::client::ApiClient;
-use crate::api::comment::CommentItem;
 use crate::api::video::{RelatedVideoItem, VideoInfo};
 use crate::application::AppAction;
 use crate::storage::Keybindings;
@@ -26,25 +28,23 @@ pub struct VideoDetailPage {
     pub bvid: String,
     pub aid: i64,
     pub video_info: Option<VideoInfo>,
-    pub comments: Vec<CommentItem>,
+    /// Web-style comment list state (selection, layout, avatars).
+    pub comment_list: CommentList,
     pub related_videos: Vec<RelatedVideoItem>,
     pub related_card_grid: VideoCardGrid,
     pub loading: bool,
     pub error_message: Option<String>,
     pub comment_page: i32,
-    pub comment_scroll: usize,
     pub related_scroll: usize,
     pub focus: DetailFocus,
-    pub has_more_comments: bool,
     pub loading_more_comments: bool,
-    pub expanded_comment: Option<i64>,
-    pub comment_replies: Vec<CommentItem>,
-    pub loading_replies: bool,
     pub liked_comments: HashSet<i64>,
     pub input_mode: bool,
     pub input_buffer: String,
     last_click_time: Option<Instant>,
     last_click_index: Option<usize>,
+    /// Line of last click (comment double-click detection).
+    last_click_line: Option<usize>,
     /// Current episode index for multi-part videos (0-based)
     pub current_page_index: usize,
     /// Scroll position in episode list
@@ -62,25 +62,21 @@ impl VideoDetailPage {
             bvid,
             aid,
             video_info: None,
-            comments: Vec::new(),
+            comment_list: CommentList::new(),
             related_videos: Vec::new(),
             related_card_grid,
             loading: true,
             error_message: None,
             comment_page: 1,
-            comment_scroll: 0,
             related_scroll: 0,
             focus: DetailFocus::Comments,
-            has_more_comments: true,
             loading_more_comments: false,
-            expanded_comment: None,
-            comment_replies: Vec::new(),
-            loading_replies: false,
             liked_comments: HashSet::new(),
             input_mode: false,
             input_buffer: String::new(),
             last_click_time: None,
             last_click_index: None,
+            last_click_line: None,
             current_page_index: 0,
             episode_scroll: 0,
             auto_play_pending: true,
@@ -135,11 +131,14 @@ impl VideoDetailPage {
         // Load comments
         match api_client.get_comments(self.aid, 1).await {
             Ok(data) => {
-                self.comments = data.replies.unwrap_or_default();
+                let total = data
+                    .page
+                    .as_ref()
+                    .and_then(|p| p.acount.or(p.count))
+                    .unwrap_or(0) as i64;
+                self.comment_list
+                    .set_comments(data.replies.unwrap_or_default(), total);
                 self.comment_page = 1;
-                if let Some(page) = data.page {
-                    self.has_more_comments = page.count.unwrap_or(0) > self.comments.len() as i32;
-                }
             }
             Err(e) => {
                 if self.error_message.is_none() {
@@ -179,7 +178,7 @@ impl VideoDetailPage {
     }
 
     pub async fn load_more_comments(&mut self, api_client: &ApiClient) {
-        if !self.has_more_comments || self.loading_more_comments {
+        if !self.comment_list.has_more || self.loading_more_comments {
             return;
         }
 
@@ -187,60 +186,96 @@ impl VideoDetailPage {
         self.comment_page += 1;
         match api_client.get_comments(self.aid, self.comment_page).await {
             Ok(data) => {
-                if let Some(replies) = data.replies {
-                    if replies.is_empty() {
-                        self.has_more_comments = false;
-                    } else {
-                        self.comments.extend(replies);
-                    }
+                let replies = data.replies.unwrap_or_default();
+                if replies.is_empty() {
+                    self.comment_list.has_more = false;
                 } else {
-                    self.has_more_comments = false;
+                    self.comment_list.append_comments(replies);
                 }
             }
             Err(_) => {
                 self.comment_page -= 1;
+                self.comment_list.has_more = false;
             }
         }
         self.loading_more_comments = false;
     }
 
     pub async fn toggle_comment_replies(&mut self, api_client: &ApiClient) {
-        if self.comment_scroll >= self.comments.len() {
+        let Some(comment) = self.comment_list.selected_comment() else {
             return;
-        }
-
-        let comment = &self.comments[self.comment_scroll];
+        };
         let comment_rpid = comment.rpid;
+        let reply_count = comment.reply_count();
 
-        // If already expanded, collapse it
-        if self.expanded_comment == Some(comment_rpid) {
-            self.expanded_comment = None;
-            self.comment_replies.clear();
+        // Already expanded -> collapse
+        if self.comment_list.expanded.contains(&comment_rpid) {
+            self.comment_list.collapse(comment_rpid);
             return;
         }
 
-        // Check if comment has replies
-        if comment.reply_count() == 0 {
+        // Cached replies -> expand instantly
+        if self.comment_list.replies.contains_key(&comment_rpid) {
+            let cached = self
+                .comment_list
+                .replies
+                .get(&comment_rpid)
+                .cloned()
+                .unwrap_or_default();
+            self.comment_list.set_replies(comment_rpid, cached);
+            return;
+        }
+
+        if reply_count == 0 {
             return;
         }
 
         // Expand and load replies
-        self.expanded_comment = Some(comment_rpid);
-        self.loading_replies = true;
+        self.comment_list.set_loading_replies(comment_rpid);
 
         match api_client
             .get_comment_replies(self.aid, comment_rpid, 1)
             .await
         {
             Ok(data) => {
-                self.comment_replies = data.replies.unwrap_or_default();
+                self.comment_list
+                    .set_replies(comment_rpid, data.replies.unwrap_or_default());
             }
             Err(_) => {
-                self.comment_replies.clear();
+                self.comment_list.reply_failed(comment_rpid);
             }
         }
+    }
 
-        self.loading_replies = false;
+    pub async fn load_more_replies_at(&mut self, comment_index: usize, api_client: &ApiClient) {
+        let Some(comment) = self.comment_list.comments.get(comment_index) else {
+            return;
+        };
+        let root_rpid = comment.rpid;
+        let next_page = self
+            .comment_list
+            .replies
+            .get(&root_rpid)
+            .map(|r| r.len() / 20 + 1)
+            .unwrap_or(1);
+        self.comment_list.loading_more_replies = true;
+        match api_client
+            .get_comment_replies(self.aid, root_rpid, next_page as i32)
+            .await
+        {
+            Ok(data) => {
+                let mut existing = self
+                    .comment_list
+                    .replies
+                    .remove(&root_rpid)
+                    .unwrap_or_default();
+                existing.extend(data.replies.unwrap_or_default());
+                self.comment_list.set_replies(root_rpid, existing);
+            }
+            Err(_) => {
+                self.comment_list.reply_failed(root_rpid);
+            }
+        }
     }
 
     /// Poll for completed related video cover downloads
@@ -253,21 +288,13 @@ impl VideoDetailPage {
         self.related_card_grid.start_cover_downloads();
     }
 
-    /// Check if scrolling near bottom of comments
-    fn is_near_comments_bottom(&self, visible_count: usize) -> bool {
-        if self.comments.is_empty() {
-            return false;
-        }
-        self.comment_scroll + visible_count >= self.comments.len().saturating_sub(2)
-    }
-
     fn render_video_info(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border_subtle))
             .title(Span::styled(
-                " 📹 视频信息 ",
+                format!(" {} 视频信息 ", icons::PLAY),
                 Style::default().fg(theme.bilibili_pink),
             ));
 
@@ -300,27 +327,42 @@ impl VideoDetailPage {
 
             // Stats
             let stats = Paragraph::new(Line::from(vec![
-                Span::styled("▶ ", Style::default().fg(theme.fg_secondary)),
+                Span::styled(
+                    format!("{} ", icons::PLAY),
+                    Style::default().fg(theme.fg_secondary),
+                ),
                 Span::styled(
                     info.stat.format_views(),
                     Style::default().fg(theme.fg_secondary),
                 ),
-                Span::styled(" · 💬 ", Style::default().fg(theme.fg_secondary)),
+                Span::styled(
+                    format!("{} ", icons::DANMAKU),
+                    Style::default().fg(theme.fg_secondary),
+                ),
                 Span::styled(
                     info.stat.format_danmaku(),
                     Style::default().fg(theme.fg_secondary),
                 ),
-                Span::styled(" · 👍 ", Style::default().fg(theme.fg_secondary)),
+                Span::styled(
+                    format!("{} ", icons::LIKE),
+                    Style::default().fg(theme.fg_secondary),
+                ),
                 Span::styled(
                     info.stat.format_like(),
                     Style::default().fg(theme.fg_secondary),
                 ),
-                Span::styled(" · 💰 ", Style::default().fg(theme.fg_secondary)),
+                Span::styled(
+                    format!("{} ", icons::COIN),
+                    Style::default().fg(theme.fg_secondary),
+                ),
                 Span::styled(
                     info.stat.format_coin(),
                     Style::default().fg(theme.fg_secondary),
                 ),
-                Span::styled(" · ⭐ ", Style::default().fg(theme.fg_secondary)),
+                Span::styled(
+                    format!("{} ", icons::STAR),
+                    Style::default().fg(theme.fg_secondary),
+                ),
                 Span::styled(
                     info.stat.format_favorite(),
                     Style::default().fg(theme.fg_secondary),
@@ -349,7 +391,7 @@ impl VideoDetailPage {
         }
     }
 
-    fn render_comments(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn render_comments(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let is_focused = self.focus == DetailFocus::Comments;
         let border_style = if is_focused {
             Style::default().fg(theme.border_focused)
@@ -357,12 +399,14 @@ impl VideoDetailPage {
             Style::default().fg(theme.border_unfocused)
         };
 
+        let total = self.comment_list.comments.len();
+        let more_hint = if self.comment_list.has_more { "+" } else { "" };
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(border_style)
             .title(Span::styled(
-                " 💬 评论 ",
+                format!(" {} 评论 {}{} ", icons::COMMENT, total, more_hint),
                 Style::default().fg(if is_focused {
                     theme.bilibili_pink
                 } else {
@@ -372,118 +416,7 @@ impl VideoDetailPage {
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
-
-        if self.comments.is_empty() {
-            let empty = Paragraph::new("暂无评论")
-                .style(Style::default().fg(theme.fg_secondary))
-                .alignment(Alignment::Center);
-            frame.render_widget(empty, inner);
-            return;
-        }
-
-        // Build all items with replies
-        let mut all_items = Vec::new();
-        let item_height = 3;
-
-        for (idx, comment) in self.comments.iter().enumerate() {
-            let is_selected = idx == self.comment_scroll;
-            let is_expanded = self.expanded_comment == Some(comment.rpid);
-
-            // Main comment
-            let reply_indicator = if comment.reply_count() > 0 {
-                if is_expanded { "▼" } else { "▶" }
-            } else {
-                " "
-            };
-
-            let lines = vec![
-                Line::from(vec![
-                    Span::styled(
-                        format!("{} ", reply_indicator),
-                        Style::default().fg(theme.fg_accent),
-                    ),
-                    Span::styled(
-                        comment.author_name(),
-                        Style::default()
-                            .fg(theme.bilibili_pink)
-                            .add_modifier(if is_selected {
-                                Modifier::BOLD
-                            } else {
-                                Modifier::empty()
-                            }),
-                    ),
-                    Span::styled(
-                        format!("  {}", comment.format_time()),
-                        Style::default().fg(theme.fg_secondary),
-                    ),
-                ]),
-                Line::from(vec![Span::styled(
-                    truncate_str(comment.message(), 60),
-                    Style::default().fg(theme.fg_primary),
-                )]),
-                Line::from(vec![Span::styled(
-                    format!(
-                        "👍 {}  💬 {} 回复",
-                        comment.format_like(),
-                        comment.reply_count()
-                    ),
-                    Style::default().fg(theme.fg_secondary),
-                )]),
-            ];
-            all_items.push(ListItem::new(lines));
-
-            // Show replies if expanded
-            if is_expanded {
-                if self.loading_replies {
-                    all_items.push(ListItem::new(vec![Line::from(vec![Span::styled(
-                        "  ⏳ 加载回复中...",
-                        Style::default().fg(theme.warning),
-                    )])]));
-                } else {
-                    for reply in &self.comment_replies {
-                        let reply_lines = vec![
-                            Line::from(vec![
-                                Span::styled("    ↳ ", Style::default().fg(theme.fg_secondary)),
-                                Span::styled(
-                                    reply.author_name(),
-                                    Style::default().fg(Color::Rgb(150, 150, 200)),
-                                ),
-                                Span::styled(
-                                    format!("  {}", reply.format_time()),
-                                    Style::default().fg(theme.fg_secondary),
-                                ),
-                            ]),
-                            Line::from(vec![
-                                Span::styled("      ", Style::default()),
-                                Span::styled(
-                                    truncate_str(reply.message(), 55),
-                                    Style::default().fg(theme.fg_primary),
-                                ),
-                            ]),
-                            Line::from(vec![
-                                Span::styled("      ", Style::default()),
-                                Span::styled(
-                                    format!("👍 {}", reply.format_like()),
-                                    Style::default().fg(theme.fg_secondary),
-                                ),
-                            ]),
-                        ];
-                        all_items.push(ListItem::new(reply_lines));
-                    }
-                }
-            }
-        }
-
-        // Calculate scroll and visible items
-        let visible_count = (inner.height as usize / item_height).max(1);
-        let display_items: Vec<ListItem> = all_items
-            .into_iter()
-            .skip(self.comment_scroll)
-            .take(visible_count)
-            .collect();
-
-        let list = List::new(display_items);
-        frame.render_widget(list, inner);
+        self.comment_list.render(frame, inner, theme, is_focused);
     }
 
     fn render_related(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
@@ -499,7 +432,7 @@ impl VideoDetailPage {
             .border_type(BorderType::Rounded)
             .border_style(border_style)
             .title(Span::styled(
-                " 📺 相关推荐 ",
+                format!(" {} 相关推荐 ", icons::TV),
                 Style::default().fg(if is_focused {
                     theme.bilibili_pink
                 } else {
@@ -559,7 +492,7 @@ impl VideoDetailPage {
             .border_type(BorderType::Rounded)
             .border_style(border_style)
             .title(Span::styled(
-                format!(" 📑 选集 ({}) ", pages.len()),
+                format!(" {} 选集 ({}) ", icons::LIST, pages.len()),
                 Style::default().fg(if is_focused {
                     theme.bilibili_pink
                 } else {
@@ -664,7 +597,7 @@ impl Component for VideoDetailPage {
                 );
             frame.render_widget(loading, chunks[1]);
         } else if let Some(error) = &self.error_message {
-            let error_widget = Paragraph::new(format!("❌ {}", error))
+            let error_widget = Paragraph::new(format!("{} {}", icons::ERROR, error))
                 .style(Style::default().fg(theme.error))
                 .alignment(Alignment::Center)
                 .block(
@@ -709,7 +642,7 @@ impl Component for VideoDetailPage {
                 .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(theme.bilibili_pink))
                 .title(Span::styled(
-                    " ✏️ 发表评论 ",
+                    format!(" {} 发表评论 ", icons::EDIT),
                     Style::default()
                         .fg(theme.bilibili_pink)
                         .add_modifier(Modifier::BOLD),
@@ -742,13 +675,11 @@ impl Component for VideoDetailPage {
                 [
                     (
                         format!("{}/{}", keys.nav_up, keys.nav_down),
-                        "滚动".into(),
+                        "选择评论".into(),
                         theme.fg_accent,
                     ),
-                    (keys.nav_next_page.clone(), "切换".into(), theme.info),
-                    (keys.confirm.clone(), "点赞/选择".into(), theme.success),
+                    (keys.confirm.clone(), "展开/点赞".into(), theme.success),
                     (keys.comment.clone(), "评论".into(), theme.info),
-                    (keys.toggle_replies.clone(), "回复".into(), theme.info),
                     (keys.play.clone(), "播放".into(), theme.success),
                     (keys.back.clone(), "返回".into(), theme.info),
                 ],
@@ -815,8 +746,10 @@ impl Component for VideoDetailPage {
             return Some(AppAction::None);
         }
         if keys.matches_toggle_replies(key) {
-            if self.focus == DetailFocus::Comments {
-                return Some(AppAction::ToggleCommentReplies);
+            if self.focus == DetailFocus::Comments
+                && let Some(intent) = self.comment_list.activate_selected()
+            {
+                return comment_intent_to_action(intent, self.aid);
             }
             return Some(AppAction::None);
         }
@@ -840,14 +773,7 @@ impl Component for VideoDetailPage {
         if keys.matches_down(key) {
             match self.focus {
                 DetailFocus::Comments => {
-                    if self.comment_scroll + 1 < self.comments.len() {
-                        self.comment_scroll += 1;
-                    }
-                    // Check if near bottom to load more comments
-                    if self.is_near_comments_bottom(10)
-                        && self.has_more_comments
-                        && !self.loading_more_comments
-                    {
+                    if let Some(CommentIntent::LoadMoreComments) = self.comment_list.move_down() {
                         return Some(AppAction::LoadMoreComments);
                     }
                 }
@@ -869,9 +795,7 @@ impl Component for VideoDetailPage {
         if keys.matches_up(key) {
             match self.focus {
                 DetailFocus::Comments => {
-                    if self.comment_scroll > 0 {
-                        self.comment_scroll -= 1;
-                    }
+                    self.comment_list.move_up();
                 }
                 DetailFocus::Episodes => {
                     if self.episode_scroll > 0 {
@@ -901,14 +825,9 @@ impl Component for VideoDetailPage {
         if keys.matches_confirm(key) {
             match self.focus {
                 DetailFocus::Comments => {
-                    // Like the currently selected comment
-                    if self.comment_scroll < self.comments.len() {
-                        let comment = &self.comments[self.comment_scroll];
-                        return Some(AppAction::LikeComment {
-                            oid: self.aid,
-                            rpid: comment.rpid,
-                            comment_type: 1,
-                        });
+                    // Activate: toggle replies / load more / like
+                    if let Some(intent) = self.comment_list.activate_selected() {
+                        return comment_intent_to_action(intent, self.aid);
                     }
                 }
                 DetailFocus::Episodes => {
@@ -948,14 +867,9 @@ impl Component for VideoDetailPage {
             MouseEventKind::ScrollDown => {
                 match self.focus {
                     DetailFocus::Comments => {
-                        if self.comment_scroll + 1 < self.comments.len() {
-                            self.comment_scroll += 1;
-                            if self.is_near_comments_bottom(10)
-                                && self.has_more_comments
-                                && !self.loading_more_comments
-                            {
-                                return Some(AppAction::LoadMoreComments);
-                            }
+                        if let Some(CommentIntent::LoadMoreComments) = self.comment_list.move_down()
+                        {
+                            return Some(AppAction::LoadMoreComments);
                         }
                     }
                     DetailFocus::Related => {
@@ -976,9 +890,7 @@ impl Component for VideoDetailPage {
             MouseEventKind::ScrollUp => {
                 match self.focus {
                     DetailFocus::Comments => {
-                        if self.comment_scroll > 0 {
-                            self.comment_scroll -= 1;
-                        }
+                        self.comment_list.move_up();
                     }
                     DetailFocus::Related => {
                         if self.related_card_grid.move_up() {
@@ -994,6 +906,55 @@ impl Component for VideoDetailPage {
                 None
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                // Comment pane click: select entry, double-click activates.
+                {
+                    let chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([
+                            Constraint::Length(6),
+                            Constraint::Min(10),
+                            Constraint::Length(2),
+                        ])
+                        .split(area);
+                    let content_chunks = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                        .split(chunks[1]);
+                    let comments_area = content_chunks[0];
+                    let inner = Rect {
+                        x: comments_area.x + 1,
+                        y: comments_area.y + 1,
+                        width: comments_area.width.saturating_sub(2),
+                        height: comments_area.height.saturating_sub(2),
+                    };
+                    if self.focus == DetailFocus::Comments
+                        && inner.contains(Position::new(event.column, event.row))
+                    {
+                        let rel_row = (event.row - inner.y) as usize;
+                        if let Some(entry) = self
+                            .comment_list
+                            .click_at(self.comment_list.scroll + rel_row)
+                        {
+                            let now = Instant::now();
+                            let is_double = self.last_click_line == Some(entry.start_line)
+                                && self
+                                    .last_click_time
+                                    .is_some_and(|t| now.duration_since(t).as_millis() < 500);
+                            if is_double {
+                                self.last_click_time = None;
+                                self.last_click_line = None;
+                                if let Some(intent) = self.comment_list.activate_selected() {
+                                    return comment_intent_to_action(intent, self.aid);
+                                }
+                            } else {
+                                self.last_click_time = Some(now);
+                                self.last_click_line = Some(entry.start_line);
+                            }
+                        }
+                        return None;
+                    }
+                }
+
                 if self.focus != DetailFocus::Related {
                     return None;
                 }
@@ -1077,5 +1038,27 @@ fn truncate_str(s: &str, max_len: usize) -> String {
             + "..."
     } else {
         s.to_string()
+    }
+}
+
+/// Map a comment-list intent to an AppAction using this page's oid/type.
+fn comment_intent_to_action(intent: CommentIntent, aid: i64) -> Option<AppAction> {
+    match intent {
+        CommentIntent::LoadMoreComments => Some(AppAction::LoadMoreComments),
+        CommentIntent::ToggleReplies { comment_index } => {
+            Some(AppAction::ToggleCommentRepliesAt { comment_index })
+        }
+        CommentIntent::LoadMoreReplies { comment_index } => {
+            Some(AppAction::LoadMoreReplies { comment_index })
+        }
+        CommentIntent::Like {
+            comment_index,
+            reply_index,
+        } => Some(AppAction::LikeCommentAt {
+            oid: aid,
+            comment_index,
+            reply_index,
+            comment_type: 1,
+        }),
     }
 }

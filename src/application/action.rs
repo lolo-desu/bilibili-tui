@@ -100,6 +100,21 @@ pub enum AppAction {
     LoadMoreComments,
     /// Toggle comment replies expansion
     ToggleCommentReplies,
+    /// Toggle replies of the comment at `comment_index` (web-style list)
+    ToggleCommentRepliesAt {
+        comment_index: usize,
+    },
+    /// Load the next page of replies for the expanded comment
+    LoadMoreReplies {
+        comment_index: usize,
+    },
+    /// Like/unlike comment or reply selected in the web-style comment list
+    LikeCommentAt {
+        oid: i64,
+        comment_index: usize,
+        reply_index: Option<usize>,
+        comment_type: i32,
+    },
     /// Switch dynamic tab
     SwitchDynamicTab(DynamicTab),
     /// Select UP master (0 = all, 1+ = specific UP)

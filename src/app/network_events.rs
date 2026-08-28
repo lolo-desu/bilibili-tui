@@ -186,7 +186,7 @@ impl App {
                 bvid,
                 video_info,
                 comments,
-                has_more_comments,
+                has_more_comments: _,
                 related_videos,
             } => {
                 if !self.is_latest_request("video_detail", req_id) {
@@ -197,9 +197,9 @@ impl App {
                         return;
                     }
                     page.video_info = Some(video_info);
-                    page.comments = comments;
+                    let total = comments.len() as i64;
+                    page.comment_list.set_comments(comments, total);
                     page.comment_page = 1;
-                    page.has_more_comments = has_more_comments;
                     page.related_videos = related_videos.clone();
                     page.related_card_grid.clear();
                     for video in &related_videos {

@@ -1,15 +1,19 @@
 //! Web-style comment list shared by video/dynamic/article detail pages.
 //!
-//! Layout mimics the bilibili web GUI: avatar on the left, user name + level
-//! + relative time on the header row, multi-line wrapped message, and an
-//! action row with like button + count, reply count and a fold toggle when a
-//! comment has replies. Selection moves per-entry (comment / reply / toggle
-//! row, not per-line); the list auto-scrolls to keep the selection visible.
-//! Avatars are downloaded in the background and rendered as terminal images.
+//! Layout mimics the bilibili web GUI:
+//!
+//! - avatar on the left; user name + level + relative time on the header row
+//! - multi-line wrapped message
+//! - action row with like button + count, reply count, and a fold toggle when
+//!   a comment has replies
+//!
+//! Selection moves per-entry (comment / reply / toggle row, not per-line); the
+//! list auto-scrolls to keep the selection visible. Avatars are downloaded in
+//! the background and rendered as terminal images.
 
+use super::Theme;
 use super::icons;
 use super::image_picker::{picker_supports_images, shared_picker};
-use super::Theme;
 use crate::api::comment::CommentItem;
 use image::DynamicImage;
 use ratatui::prelude::*;
@@ -142,7 +146,11 @@ impl AvatarLoader {
 
     fn is_loaded_or_pending(&self, index: usize) -> bool {
         self.pending.contains(&index)
-            || self.protocols.get(index).map(|p| p.is_some()).unwrap_or(true)
+            || self
+                .protocols
+                .get(index)
+                .map(|p| p.is_some())
+                .unwrap_or(true)
     }
 
     /// Request downloads for the given comment indices.
@@ -164,7 +172,12 @@ impl AvatarLoader {
             tokio::spawn(async move {
                 if let Some(img) = download_image(&url).await {
                     let protocol = picker.new_resize_protocol(img);
-                    let _ = tx.send(AvatarResult { index: idx, protocol }).await;
+                    let _ = tx
+                        .send(AvatarResult {
+                            index: idx,
+                            protocol,
+                        })
+                        .await;
                 }
             });
         }
@@ -394,7 +407,8 @@ impl CommentList {
             if is_expanded {
                 if let Some(replies) = self.replies.get(&comment.rpid) {
                     for (ri, reply) in replies.iter().enumerate() {
-                        let reply_msg_lines = wrap_lines(reply.message(), content_width).len().max(1);
+                        let reply_msg_lines =
+                            wrap_lines(reply.message(), content_width).len().max(1);
                         let height = 1 + reply_msg_lines + 1 + 1; // header+msg+actions+blank
                         entries.push(Entry {
                             kind: EntryKind::Reply,
@@ -546,11 +560,10 @@ impl CommentList {
 
     /// Map a click at absolute `row` to entry selection; returns the entry.
     pub fn click_at(&mut self, row_in_list: usize) -> Option<Entry> {
-        let entry = self
+        let entry = *self
             .entries
             .iter()
-            .find(|e| row_in_list >= e.start_line && row_in_list < e.end_line())?
-            .clone();
+            .find(|e| row_in_list >= e.start_line && row_in_list < e.end_line())?;
         self.selected_entry = self
             .entries
             .iter()
@@ -565,7 +578,7 @@ impl CommentList {
     // ------------------------------------------------------------------
 
     /// Render the comment list inside `area` (excluding block borders).
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, focused: bool) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, _focused: bool) {
         if area.width < 10 || area.height == 0 {
             return;
         }
@@ -589,9 +602,7 @@ impl CommentList {
         if self.selected_entry >= self.entries.len() {
             self.selected_entry = self.entries.len().saturating_sub(1);
         }
-        self.selected = self
-            .selected
-            .min(self.comments.len().saturating_sub(1));
+        self.selected = self.selected.min(self.comments.len().saturating_sub(1));
 
         let viewport = area.height as usize;
         self.clamp_scroll(viewport);
@@ -599,7 +610,8 @@ impl CommentList {
         // avatar prefetch for visible comments
         let visible_comments = self.visible_comment_indices(viewport);
         let urls = self.avatar_urls();
-        self.avatars.request(visible_comments.iter().copied(), &urls);
+        self.avatars
+            .request(visible_comments.iter().copied(), &urls);
         let avatars_updated = self.avatars.poll();
         let _ = avatars_updated;
 
@@ -624,7 +636,10 @@ impl CommentList {
                 width: area.width,
                 height,
             };
-            frame.render_widget(Block::default().style(Style::default().bg(theme.bg_highlight)), rect);
+            frame.render_widget(
+                Block::default().style(Style::default().bg(theme.bg_highlight)),
+                rect,
+            );
         }
 
         // draw entries
@@ -670,12 +685,10 @@ impl CommentList {
                             frame,
                             area,
                             row,
-                            entry,
                             comment,
                             theme,
                             is_selected,
                             sel_style,
-                            focused,
                         );
                     }
                 }
@@ -684,9 +697,7 @@ impl CommentList {
                     if let Some(replies) = self.replies.get(&comment.rpid)
                         && let Some(reply) = replies.get(entry.reply_index)
                     {
-                        self.draw_reply_row(
-                            frame, area, row, entry, reply, theme, is_selected, sel_style,
-                        );
+                        self.draw_reply_row(frame, area, row, reply, theme, is_selected, sel_style);
                     }
                 }
                 EntryKind::Toggle => {
@@ -701,17 +712,16 @@ impl CommentList {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_comment_card(
         &self,
         frame: &mut Frame,
         area: Rect,
         row: u16,
-        _entry: &Entry,
         comment: &CommentItem,
         theme: &Theme,
         is_selected: bool,
         sel_style: Style,
-        _focused: bool,
     ) {
         let content_width = area.width.saturating_sub(AVATAR_COLS + 1).max(8) as usize;
         let x_text = area.x + AVATAR_COLS + 1;
@@ -732,7 +742,10 @@ impl CommentList {
                     .fg(theme.bilibili_blue)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(format!(" LV{}", level), Style::default().fg(level_color(level, theme))),
+            Span::styled(
+                format!(" LV{}", level),
+                Style::default().fg(level_color(level, theme)),
+            ),
             Span::styled(
                 format!("  {}", comment.format_time()),
                 Style::default().fg(theme.fg_muted),
@@ -740,8 +753,21 @@ impl CommentList {
         ];
         // UP badge: comment author == video uploader (mid match) is not
         // tracked here; badge hooks remain for future use.
-        let header = Line::from(header_spans.drain(..).map(|s| if is_selected { s.style(sel_style) } else { s }).collect::<Vec<_>>());
-        frame.render_widget(Paragraph::new(header), Rect { x: x_text, y: row, width: text_width, height: 1 });
+        let header = Line::from(
+            header_spans
+                .drain(..)
+                .map(|s| if is_selected { s.style(sel_style) } else { s })
+                .collect::<Vec<_>>(),
+        );
+        frame.render_widget(
+            Paragraph::new(header),
+            Rect {
+                x: x_text,
+                y: row,
+                width: text_width,
+                height: 1,
+            },
+        );
 
         // Avatar is rendered by the caller (needs mutable protocol state).
 
@@ -752,16 +778,18 @@ impl CommentList {
             if y >= area.bottom() {
                 break;
             }
-            let mut span = Span::styled(
-                line_text.clone(),
-                Style::default().fg(theme.fg_primary),
-            );
+            let mut span = Span::styled(line_text.clone(), Style::default().fg(theme.fg_primary));
             if is_selected {
                 span = span.style(sel_style);
             }
             frame.render_widget(
                 Paragraph::new(Line::from(vec![Span::raw(" "), span])),
-                Rect { x: x_text.saturating_sub(1), y, width: text_width + 1, height: 1 },
+                Rect {
+                    x: x_text.saturating_sub(1),
+                    y,
+                    width: text_width + 1,
+                    height: 1,
+                },
             );
         }
 
@@ -769,8 +797,16 @@ impl CommentList {
         let action_y = row + 1 + lines.len() as u16;
         if action_y < area.bottom() {
             let liked = self.is_liked(comment.rpid);
-            let like_icon = if liked { icons::LIKE_FILLED } else { icons::LIKE };
-            let like_color = if liked { theme.bilibili_pink } else { theme.fg_muted };
+            let like_icon = if liked {
+                icons::LIKE_FILLED
+            } else {
+                icons::LIKE
+            };
+            let like_color = if liked {
+                theme.bilibili_pink
+            } else {
+                theme.fg_muted
+            };
             let reply_info = if comment.reply_count() > 0 {
                 format!("  {} {} 条回复", icons::COMMENT, comment.reply_count())
             } else {
@@ -788,17 +824,22 @@ impl CommentList {
             .style(sel_style);
             frame.render_widget(
                 Paragraph::new(action),
-                Rect { x: x_text.saturating_sub(1), y: action_y, width: text_width + 1, height: 1 },
+                Rect {
+                    x: x_text.saturating_sub(1),
+                    y: action_y,
+                    width: text_width + 1,
+                    height: 1,
+                },
             );
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_reply_row(
         &self,
         frame: &mut Frame,
         area: Rect,
         row: u16,
-        _entry: &Entry,
         reply: &CommentItem,
         theme: &Theme,
         is_selected: bool,
@@ -826,16 +867,28 @@ impl CommentList {
                     .fg(theme.bilibili_cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(format!(" LV{}", level), Style::default().fg(level_color(level, theme))),
+            Span::styled(
+                format!(" LV{}", level),
+                Style::default().fg(level_color(level, theme)),
+            ),
             Span::styled(
                 format!("  {}", reply.format_time()),
                 Style::default().fg(theme.fg_muted),
             ),
         ])
-        .style(if is_selected { sel_style } else { Style::default() });
+        .style(if is_selected {
+            sel_style
+        } else {
+            Style::default()
+        });
         frame.render_widget(
             Paragraph::new(header),
-            Rect { x: x_text - 2, y: row, width: text_width + 2, height: 1 },
+            Rect {
+                x: x_text - 2,
+                y: row,
+                width: text_width + 2,
+                height: 1,
+            },
         );
 
         // Message
@@ -846,11 +899,19 @@ impl CommentList {
                 break;
             }
             let span = Span::styled(line_text.clone(), Style::default().fg(theme.fg_primary));
-            let line = Line::from(vec![Span::raw("  "), span])
-                .style(if is_selected { sel_style } else { Style::default() });
+            let line = Line::from(vec![Span::raw("  "), span]).style(if is_selected {
+                sel_style
+            } else {
+                Style::default()
+            });
             frame.render_widget(
                 Paragraph::new(line),
-                Rect { x: x_text - 2, y, width: text_width + 2, height: 1 },
+                Rect {
+                    x: x_text - 2,
+                    y,
+                    width: text_width + 2,
+                    height: 1,
+                },
             );
         }
 
@@ -858,8 +919,16 @@ impl CommentList {
         let action_y = row + 1 + lines.len() as u16;
         if action_y < area.bottom() {
             let liked = self.is_liked(reply.rpid);
-            let like_icon = if liked { icons::LIKE_FILLED } else { icons::LIKE };
-            let like_color = if liked { theme.bilibili_pink } else { theme.fg_muted };
+            let like_icon = if liked {
+                icons::LIKE_FILLED
+            } else {
+                icons::LIKE
+            };
+            let like_color = if liked {
+                theme.bilibili_pink
+            } else {
+                theme.fg_muted
+            };
             let action = Line::from(vec![
                 Span::raw("  "),
                 Span::styled(like_icon, Style::default().fg(like_color)),
@@ -868,14 +937,24 @@ impl CommentList {
                     Style::default().fg(like_color),
                 ),
             ])
-            .style(if is_selected { sel_style } else { Style::default() });
+            .style(if is_selected {
+                sel_style
+            } else {
+                Style::default()
+            });
             frame.render_widget(
                 Paragraph::new(action),
-                Rect { x: x_text - 2, y: action_y, width: text_width + 2, height: 1 },
+                Rect {
+                    x: x_text - 2,
+                    y: action_y,
+                    width: text_width + 2,
+                    height: 1,
+                },
             );
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_toggle_row(
         &self,
         frame: &mut Frame,
@@ -918,7 +997,15 @@ impl CommentList {
         } else {
             Style::default()
         });
-        frame.render_widget(Paragraph::new(line), Rect { x, y: row, width, height: 1 });
+        frame.render_widget(
+            Paragraph::new(line),
+            Rect {
+                x,
+                y: row,
+                width,
+                height: 1,
+            },
+        );
     }
 
     fn supports_avatars(&mut self) -> bool {
@@ -953,18 +1040,21 @@ pub fn format_count(n: i64) -> String {
 }
 
 /// Draw a thin scrollbar on the right edge of the area.
-fn draw_scrollbar(frame: &mut Frame, area: Rect, scroll: usize, viewport: usize, total: usize, theme: &Theme) {
+fn draw_scrollbar(
+    frame: &mut Frame,
+    area: Rect,
+    scroll: usize,
+    viewport: usize,
+    total: usize,
+    theme: &Theme,
+) {
     let track_height = area.height as usize;
     if track_height == 0 || total <= viewport {
         return;
     }
     let thumb_len = ((viewport * track_height) / total).clamp(1, track_height);
     let max_scroll = total - viewport;
-    let pos = if max_scroll == 0 {
-        0
-    } else {
-        (scroll * (track_height - thumb_len)) / max_scroll
-    };
+    let pos = (scroll * (track_height - thumb_len)).div_ceil(max_scroll.max(1));
     for y in 0..track_height {
         let in_thumb = y >= pos && y < pos + thumb_len;
         frame.render_widget(
@@ -990,7 +1080,7 @@ pub fn wrap_lines(text: &str, width: usize) -> Vec<String> {
     let mut cur_width = 0usize;
 
     for ch in text.chars() {
-        let w = UnicodeWidthStr::width(ch.to_string().as_str()).max(0) as usize;
+        let w = UnicodeWidthStr::width(ch.to_string().as_str());
         if cur_width + w > width && !current.is_empty() {
             lines.push(std::mem::take(&mut current));
             cur_width = 0;

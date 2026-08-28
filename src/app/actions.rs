@@ -674,6 +674,57 @@ impl App {
                     page.toggle_comment_replies(&client).await;
                 }
             }
+            AppAction::ToggleCommentRepliesAt { comment_index } => {
+                if let Page::VideoDetail(page) = &mut self.current_page {
+                    let client = self.api_client.clone();
+                    page.comment_list.selected = comment_index;
+                    page.toggle_comment_replies(&client).await;
+                }
+            }
+            AppAction::LoadMoreReplies { comment_index } => {
+                if let Page::VideoDetail(page) = &mut self.current_page {
+                    let client = self.api_client.clone();
+                    page.load_more_replies_at(comment_index, &client).await;
+                }
+            }
+            AppAction::LikeCommentAt {
+                oid,
+                comment_index,
+                reply_index,
+                comment_type,
+            } => {
+                if self.credentials.is_none() {
+                    self.apply_login_required_hint();
+                    return;
+                }
+                let client = self.api_client.clone();
+                if let Page::VideoDetail(page) = &mut self.current_page {
+                    let rpid = match reply_index {
+                        None => page
+                            .comment_list
+                            .comments
+                            .get(comment_index)
+                            .map(|c| c.rpid),
+                        Some(ri) => page
+                            .comment_list
+                            .comments
+                            .get(comment_index)
+                            .and_then(|c| page.comment_list.replies.get(&c.rpid))
+                            .and_then(|replies| replies.get(ri))
+                            .map(|r| r.rpid),
+                    };
+                    if let Some(rpid) = rpid {
+                        let is_liked = page.comment_list.liked.contains(&rpid);
+                        if client
+                            .like_comment(oid, rpid, comment_type, !is_liked)
+                            .await
+                            .is_ok()
+                        {
+                            page.comment_list.set_liked(rpid, !is_liked);
+                        }
+                    }
+                }
+            }
             AppAction::SwitchDynamicTab(tab) => {
                 if self.credentials.is_none() {
                     self.apply_login_required_hint();
@@ -766,6 +817,7 @@ impl App {
                         } else {
                             page.liked_comments.insert(rpid);
                         }
+                        page.comment_list.set_liked(rpid, !is_liked);
                     }
                 } else if let Page::DynamicDetail(page) = &mut self.current_page {
                     let is_liked = page.liked_comments.contains(&rpid);
