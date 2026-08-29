@@ -1042,10 +1042,12 @@ impl HomePage {
                 .split(inner)
         };
 
-        // Cover fills its container via center-crop (uniform aspect).
+        // Cover fills its container; Scale fits both ways (up/down) while
+        // keeping the aspect, so small thumbnails still fill the cover box
+        // and nothing ever overdraws neighboring columns.
         let cover_area = card_chunks[0];
         if let Some(cover) = &mut self.videos[video_idx].cover {
-            let image_widget = StatefulImage::default().resize(Resize::Crop(None));
+            let image_widget = StatefulImage::default().resize(Resize::Scale(None));
             frame.render_stateful_widget(image_widget, cover_area, cover);
         } else {
             let is_pending = self.pending_downloads.contains(&video_idx);
