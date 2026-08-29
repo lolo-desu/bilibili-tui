@@ -633,6 +633,12 @@ impl HomePage {
 impl Component for HomePage {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings) {
         // Global footer row across the whole page width; panes live above it.
+        // Paint the page surface first: gaps between panes/cards show the
+        // page background instead of the terminal background.
+        frame.render_widget(
+            Block::default().style(Style::default().bg(theme.bg_secondary)),
+            area,
+        );
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(10), Constraint::Length(3)])

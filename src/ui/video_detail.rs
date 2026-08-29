@@ -560,6 +560,7 @@ impl VideoDetailPage {
         };
         let list_area = Rect {
             y: inner.y + 2,
+            width: inner.width.saturating_sub(1),
             height: inner.height.saturating_sub(2),
             ..inner
         };
@@ -834,6 +835,12 @@ impl VideoDetailPage {
 
 impl Component for VideoDetailPage {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings) {
+        // Paint the whole page in the panel surface tone first so any gap
+        // between panels shows the page background, never the terminal bg.
+        frame.render_widget(
+            Block::default().style(Style::default().bg(theme.bg_secondary)),
+            area,
+        );
         // Web layout: LEFT = info + comments; RIGHT = UP card + episodes +
         // related. The comment panel stretches to the window bottom and the
         // shortcut row overlays its lower padding.
@@ -906,13 +913,19 @@ impl Component for VideoDetailPage {
                 .block(panel_block(theme, None, false));
             frame.render_widget(error_widget, left_rows[1]);
         } else {
-            self.render_comments(frame, left_rows[1], theme);
+            // Reserve the bottom 3 rows for the shortcut bar: the comment
+            // list shortens so content never slides underneath the bar.
+            let panel_area = left_rows[1];
+            let list_area = Rect {
+                height: panel_area.height.saturating_sub(3),
+                ..panel_area
+            };
+            self.render_comments(frame, list_area, theme);
 
-            // Shortcut row overlays the comments panel's bottom padding.
             let footer_area = Rect {
-                x: left_rows[1].x + 1,
+                x: panel_area.x + 1,
                 y: area.bottom().saturating_sub(3),
-                width: left_rows[1].width.saturating_sub(2),
+                width: panel_area.width.saturating_sub(2),
                 height: 3,
             };
             let in_thread = self.comment_list.sub_thread.is_some();
