@@ -61,6 +61,9 @@ pub struct RelatedVideoOwner {
     pub mid: Option<i64>,
     pub name: Option<String>,
     pub face: Option<String>,
+    /// Filled in post-fetch by the enrichment pass (not part of the API).
+    #[serde(skip)]
+    pub follower: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

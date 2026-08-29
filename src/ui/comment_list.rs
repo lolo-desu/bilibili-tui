@@ -31,6 +31,8 @@ pub enum EntryKind {
     Comment,
     /// Reply row inside an expanded comment (floor view).
     Reply,
+    /// Reply-to-reply row inside the conversation view.
+    SubReply,
     /// "展开/收起回复" or page/load-more toggle row.
     Toggle,
     /// Horizontal rule between top-level cards (not selectable).
@@ -66,6 +68,13 @@ pub enum CommentIntent {
     LoadMoreReplies { comment_index: usize },
     /// Turn the floor page of the expanded comment's replies.
     PageReplies { comment_index: usize },
+    /// Open the APP-style conversation of a floor reply.
+    OpenSubThread {
+        comment_index: usize,
+        reply_index: usize,
+    },
+    /// Leave the conversation view.
+    CloseSubThread,
     /// Like/unlike the selected comment or reply.
     Like {
         comment_index: usize,
@@ -288,6 +297,11 @@ pub struct CommentList {
     pub comments: Vec<CommentItem>,
     /// Fetched replies keyed by root comment rpid.
     pub replies: HashMap<i64, Vec<CommentItem>>,
+    /// APP-style conversation view: (root_rpid, focus reply rpid) while the
+    /// user is reading the full conversation of one floor reply.
+    pub sub_thread: Option<(i64, i64)>,
+    /// Fetched children per focused reply rpid.
+    pub sub_replies: HashMap<i64, Vec<CommentItem>>,
     /// Current floor page (0-based) per expanded root rpid.
     pub reply_pages: HashMap<i64, usize>,
     /// Root rpids currently expanded.
@@ -328,6 +342,8 @@ impl CommentList {
         Self {
             comments: Vec::new(),
             replies: HashMap::new(),
+            sub_thread: None,
+            sub_replies: HashMap::new(),
             reply_pages: HashMap::new(),
             expanded: HashSet::new(),
             loading_replies_for: None,
@@ -374,6 +390,44 @@ impl CommentList {
         self.loading_replies_for = None;
         self.loading_more_replies = false;
         self.entries.clear();
+    }
+
+    /// Enter the conversation view for `focus_rpid` under root `root_rpid`.
+    pub fn enter_sub_thread(&mut self, root_rpid: i64, focus_rpid: i64) {
+        self.sub_thread = Some((root_rpid, focus_rpid));
+        self.entries.clear();
+        self.selected_entry = 0;
+        self.scroll = 0;
+    }
+
+    /// Leave the conversation view.
+    pub fn leave_sub_thread(&mut self) {
+        self.sub_thread = None;
+        self.entries.clear();
+        self.selected_entry = 0;
+    }
+
+    /// Insert fetched children for the focused reply.
+    pub fn set_sub_replies(&mut self, focus_rpid: i64, children: Vec<CommentItem>) {
+        self.sub_replies.insert(focus_rpid, children);
+        self.entries.clear();
+    }
+
+    /// Position of the selected entry when it is a floor reply
+    /// (comment_index, reply_index); None for top-level cards.
+    pub fn selected_reply_pos(&self) -> Option<(usize, usize)> {
+        let entry = self.entries.get(self.selected_entry)?;
+        match entry.kind {
+            EntryKind::Reply if entry.reply_index != usize::MAX => {
+                Some((entry.comment_index, entry.reply_index))
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether a conversation view is open.
+    pub fn in_sub_thread(&self) -> bool {
+        self.sub_thread.is_some()
     }
 
     /// Visible slice (floor page) of replies for an expanded root comment.
@@ -520,6 +574,58 @@ impl CommentList {
         let mut entries = Vec::new();
         let mut line = 0usize;
         let content_width = width.saturating_sub(AVATAR_COLS + 1).max(8) as usize;
+
+        // Conversation view: focused reply on top, its children below,
+        // a back row at the bottom (APP-style 对话页).
+        if let Some((root_rpid, focus_rpid)) = self.sub_thread {
+            let ci = self
+                .comments
+                .iter()
+                .position(|c| c.rpid == root_rpid)
+                .unwrap_or(0);
+            if let Some(focus) = self
+                .replies
+                .get(&root_rpid)
+                .and_then(|rs| rs.iter().find(|r| r.rpid == focus_rpid))
+            {
+                let msg = focus.message_line_count(content_width).max(1);
+                let h = 1 + msg + 1 + CARD_TRAIL_BLANK as usize + 1;
+                entries.push(Entry {
+                    kind: EntryKind::Reply,
+                    comment_index: ci,
+                    reply_index: usize::MAX, // focus marker
+                    start_line: line,
+                    height: h as u16,
+                });
+                line += h;
+                if let Some(children) = self.sub_replies.get(&focus_rpid) {
+                    for (si, child) in children.iter().enumerate() {
+                        let msg = child.message_line_count(content_width).max(1);
+                        let h = 1 + msg + 1 + CARD_TRAIL_BLANK as usize + 1;
+                        entries.push(Entry {
+                            kind: EntryKind::SubReply,
+                            comment_index: ci,
+                            reply_index: si,
+                            start_line: line,
+                            height: h as u16,
+                        });
+                        line += h;
+                    }
+                }
+                entries.push(Entry {
+                    kind: EntryKind::Toggle,
+                    comment_index: ci,
+                    reply_index: 3, // back row
+                    start_line: line,
+                    height: 2,
+                });
+                line += 2;
+            }
+            self.entries = entries;
+            self.total_lines = line;
+            self.last_width = width;
+            return;
+        }
 
         for (ci, comment) in self.comments.iter().enumerate() {
             // separator line above each card (except the very first)
@@ -692,13 +798,44 @@ impl CommentList {
                 comment_index: entry.comment_index,
                 reply_index: None,
             }),
-            EntryKind::Reply => Some(CommentIntent::Like {
+            EntryKind::Reply => {
+                // The focus row of a conversation view just likes.
+                if entry.reply_index == usize::MAX || self.in_sub_thread() {
+                    return Some(CommentIntent::Like {
+                        comment_index: entry.comment_index,
+                        reply_index: Some(entry.reply_index),
+                    });
+                }
+                // In floor view, Space opens the conversation of a reply
+                // that has children ("查看对话").
+                let comment = self.comments.get(entry.comment_index)?;
+                let has_children = self
+                    .replies
+                    .get(&comment.rpid)
+                    .and_then(|rs| rs.get(entry.reply_index))
+                    .map(|r| r.rcount.unwrap_or(0) > 0)
+                    .unwrap_or(false);
+                if has_children {
+                    Some(CommentIntent::OpenSubThread {
+                        comment_index: entry.comment_index,
+                        reply_index: entry.reply_index,
+                    })
+                } else {
+                    Some(CommentIntent::Like {
+                        comment_index: entry.comment_index,
+                        reply_index: Some(entry.reply_index),
+                    })
+                }
+            }
+            EntryKind::SubReply => Some(CommentIntent::Like {
                 comment_index: entry.comment_index,
-                reply_index: Some(entry.reply_index),
+                reply_index: None,
             }),
             EntryKind::Toggle => {
                 let comment = self.comments.get(entry.comment_index)?;
-                if self.expanded.contains(&comment.rpid) {
+                if self.in_sub_thread() {
+                    Some(CommentIntent::CloseSubThread)
+                } else if self.expanded.contains(&comment.rpid) {
                     if entry.reply_index == 2 {
                         // pager row cycles to the next floor page (wraps)
                         Some(CommentIntent::PageReplies {
@@ -805,23 +942,18 @@ impl CommentList {
                 width: area.width,
                 height,
             };
-            if height >= 2 {
-                frame.render_widget(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Plain)
-                        .border_style(Style::default().fg(theme.border_focused)),
-                    rect,
-                );
-            } else {
-                // single visible row: underline only
-                frame.render_widget(
-                    Block::default()
-                        .borders(Borders::BOTTOM)
-                        .border_style(Style::default().fg(theme.border_focused)),
-                    rect,
-                );
-            }
+            // Filled background for the whole card, then a pink accent bar
+            // on the left edge (web-style selected comment).
+            frame.render_widget(
+                Block::default().style(Style::default().bg(theme.bg_highlight)),
+                rect,
+            );
+            frame.render_widget(
+                Block::default()
+                    .borders(Borders::LEFT)
+                    .border_style(Style::default().fg(theme.bilibili_pink)),
+                rect,
+            );
         }
 
         // draw entries
@@ -893,10 +1025,42 @@ impl CommentList {
                 }
                 EntryKind::Reply => {
                     let comment = &self.comments[entry.comment_index];
-                    if let Some(replies) = self.replies.get(&comment.rpid)
+                    // usize::MAX marks the focused reply atop a conversation.
+                    if entry.reply_index == usize::MAX {
+                        if let Some(focus_rpid) = self.sub_thread.map(|(_, r)| r)
+                            && let Some(replies) = self.replies.get(&comment.rpid)
+                            && let Some(reply) = replies.iter().find(|r| r.rpid == focus_rpid)
+                        {
+                            self.draw_reply_row(
+                                frame,
+                                area,
+                                row,
+                                reply,
+                                theme,
+                                is_selected,
+                                sel_style,
+                            );
+                        }
+                    } else if let Some(replies) = self.replies.get(&comment.rpid)
                         && let Some(reply) = replies.get(entry.reply_index)
                     {
                         self.draw_reply_row(frame, area, row, reply, theme, is_selected, sel_style);
+                    }
+                }
+                EntryKind::SubReply => {
+                    if let Some((_, focus_rpid)) = self.sub_thread
+                        && let Some(children) = self.sub_replies.get(&focus_rpid)
+                        && let Some(child) = children.get(entry.reply_index)
+                    {
+                        self.draw_sub_reply_row(
+                            frame,
+                            area,
+                            row,
+                            child,
+                            theme,
+                            is_selected,
+                            sel_style,
+                        );
                     }
                 }
                 EntryKind::Toggle => {
@@ -1099,10 +1263,16 @@ impl CommentList {
         is_selected: bool,
         sel_style: Style,
     ) {
-        // Floor view: replies align exactly like top-level comments
-        let text_x = area.x + AVATAR_COLS + GAP_COLS;
-        let text_width = area.width.saturating_sub(AVATAR_COLS + GAP_COLS);
+        // Floor view: replies indent one step right; a faint vertical line
+        // on the left marks them as children of the parent comment.
+        const REPLY_INDENT: u16 = 2;
+        let line_x = area.x + AVATAR_COLS;
+        let text_x = line_x + REPLY_INDENT + GAP_COLS;
+        let text_width = area
+            .width
+            .saturating_sub(AVATAR_COLS + REPLY_INDENT + GAP_COLS);
         let content_width = text_width.saturating_sub(1) as usize;
+        let _ = line_x;
 
         // Header: name LV (time moves to action row like web)
         let level = reply
@@ -1226,7 +1396,189 @@ impl CommentList {
                 format_count(self.like_count(reply)),
                 Style::default().fg(like_color),
             ));
+            // "共n条回复" hint when this reply has children (web wording).
+            let child_count = reply.rcount.unwrap_or(0).max(0) as usize;
+            if child_count > 0 {
+                action_spans.push(Span::styled(
+                    format!("  共{}条回复", child_count),
+                    Style::default().fg(theme.bilibili_blue),
+                ));
+            }
+            // faint vertical hierarchy line spanning this reply's block
+            let block_h = (1 + line_count + 1) as u16;
+            let rule_y = row.min(area.bottom().saturating_sub(1));
+            let rule_h = block_h.min(area.bottom().saturating_sub(rule_y));
+            let rule = Block::default()
+                .borders(Borders::LEFT)
+                .border_style(Style::default().fg(theme.border_subtle));
+            frame.render_widget(
+                rule,
+                Rect {
+                    x: line_x,
+                    y: rule_y,
+                    width: REPLY_INDENT,
+                    height: rule_h,
+                },
+            );
             let action = Line::from(action_spans).style(if is_selected {
+                sel_style
+            } else {
+                Style::default()
+            });
+            frame.render_widget(
+                Paragraph::new(action),
+                Rect {
+                    x: text_x,
+                    y: action_y,
+                    width: text_width,
+                    height: 1,
+                },
+            );
+        }
+    }
+
+    /// Child reply inside a conversation view: indented with a faint
+    /// vertical hierarchy line on the left.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_sub_reply_row(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        row: u16,
+        reply: &CommentItem,
+        theme: &Theme,
+        is_selected: bool,
+        sel_style: Style,
+    ) {
+        const INDENT: u16 = AVATAR_COLS + 2;
+        let text_x = area.x + INDENT + GAP_COLS;
+        let text_width = area.width.saturating_sub(INDENT + GAP_COLS);
+        let content_width = text_width.saturating_sub(1) as usize;
+
+        let level = reply
+            .member
+            .as_ref()
+            .and_then(|m| m.level_info.as_ref())
+            .and_then(|l| l.current_level)
+            .unwrap_or(0);
+        let name = truncate_width(reply.author_name(), content_width.saturating_sub(10));
+        let header = Line::from(vec![
+            Span::styled(
+                name,
+                Style::default()
+                    .fg(theme.bilibili_cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" LV{}", level),
+                Style::default().fg(level_color(level, theme)),
+            ),
+        ])
+        .style(if is_selected {
+            sel_style
+        } else {
+            Style::default()
+        });
+        frame.render_widget(
+            Paragraph::new(header),
+            Rect {
+                x: text_x,
+                y: row,
+                width: text_width,
+                height: 1,
+            },
+        );
+
+        let segments = reply.message_segments();
+        let has_emotes = segments
+            .iter()
+            .any(|seg| matches!(seg, crate::api::comment::Segment::Emote(_)));
+        let line_count = reply.message_line_count(content_width).max(1);
+        let msg_lines: Vec<Vec<Span<'static>>> = if has_emotes {
+            wrap_segments(&segments, content_width, theme)
+        } else {
+            wrap_lines(reply.message(), content_width)
+                .into_iter()
+                .map(|l| vec![Span::styled(l, Style::default().fg(theme.fg_primary))])
+                .collect()
+        };
+        for (li, spans) in msg_lines.iter().enumerate() {
+            let y = row + 1 + li as u16;
+            if y >= area.bottom() {
+                break;
+            }
+            let spans: Vec<Span<'static>> = spans
+                .iter()
+                .map(|sp| {
+                    let mut s = sp.clone();
+                    if is_selected {
+                        s = s.style(sel_style);
+                    } else if s.style.fg.is_none() {
+                        s = s.style(Style::default().fg(theme.fg_primary));
+                    }
+                    s
+                })
+                .collect();
+            frame.render_widget(
+                Paragraph::new(Line::from(spans)),
+                Rect {
+                    x: text_x,
+                    y,
+                    width: text_width,
+                    height: 1,
+                },
+            );
+        }
+
+        // Faint vertical hierarchy line spanning the whole child block.
+        let block_h = (1 + line_count + 1) as u16;
+        let rule_y = row.min(area.bottom().saturating_sub(1));
+        let rule_h = block_h.min(area.bottom().saturating_sub(rule_y));
+        let rule = Block::default()
+            .borders(Borders::LEFT)
+            .border_style(Style::default().fg(theme.border_subtle));
+        frame.render_widget(
+            rule,
+            Rect {
+                x: area.x + AVATAR_COLS,
+                y: rule_y,
+                width: GAP_COLS + 1,
+                height: rule_h,
+            },
+        );
+
+        let action_y = row + 1 + line_count as u16;
+        if action_y < area.bottom() {
+            let liked = self.is_liked(reply.rpid);
+            let like_icon = if liked {
+                icons::LIKE_FILLED
+            } else {
+                icons::LIKE
+            };
+            let like_color = if liked {
+                theme.bilibili_pink
+            } else {
+                theme.fg_muted
+            };
+            let mut spans = vec![Span::styled(
+                reply.format_time_absolute(),
+                Style::default().fg(theme.fg_muted),
+            )];
+            if let Some(loc) = reply.ip_location() {
+                spans.push(Span::styled(
+                    format!(" · IP{}", loc),
+                    Style::default().fg(theme.fg_muted),
+                ));
+            }
+            spans.push(Span::styled(
+                format!("  {} ", like_icon),
+                Style::default().fg(like_color),
+            ));
+            spans.push(Span::styled(
+                format_count(self.like_count(reply)),
+                Style::default().fg(like_color),
+            ));
+            let action = Line::from(spans).style(if is_selected {
                 sel_style
             } else {
                 Style::default()
@@ -1325,7 +1677,13 @@ impl CommentList {
             return;
         }
 
-        let (label, icon, color) = if self.expanded.contains(&comment.rpid) {
+        let (label, icon, color) = if entry.reply_index == 3 {
+            (
+                "‹ 返回评论列表".to_string(),
+                icons::LEFT_ARROW,
+                theme.bilibili_blue,
+            )
+        } else if self.expanded.contains(&comment.rpid) {
             ("收起回复".to_string(), icons::FOLD_OPEN, theme.fg_muted)
         } else if self.loading_replies_for == Some(comment.rpid) {
             ("加载回复中...".to_string(), icons::SPINNER, theme.warning)
@@ -1573,5 +1931,97 @@ mod tests {
     fn format_count_uses_wan() {
         assert_eq!(format_count(9_999), "9999");
         assert_eq!(format_count(23_456), "2.3万");
+    }
+
+    use crate::api::comment::{CommentContent, CommentMember};
+
+    fn item(rpid: i64, parent: i64, msg: &str, rcount: Option<i32>) -> CommentItem {
+        CommentItem {
+            rpid,
+            oid: 1,
+            mid: 100 + rpid,
+            parent,
+            count: None,
+            rcount,
+            floor: None,
+            ctime: Some(1_700_000_000),
+            like: Some(0),
+            member: Some(CommentMember {
+                mid: Some((100 + rpid).to_string()),
+                uname: Some(format!("用户{rpid}")),
+                avatar: None,
+                level_info: None,
+            }),
+            content: Some(CommentContent {
+                message: Some(msg.into()),
+                emote: None,
+            }),
+            reply_control: None,
+            replies: None,
+        }
+    }
+
+    #[test]
+    fn sub_thread_renders_focus_and_children() {
+        let mut list = CommentList::new();
+        list.set_comments(vec![item(1, 0, "主评论", Some(2))], 1);
+        // floor replies under the root, second one has children
+        list.replies.insert(
+            1,
+            vec![
+                item(11, 1, "一楼回复", Some(1)),
+                item(12, 1, "二楼回复", None),
+            ],
+        );
+        list.sub_replies.insert(
+            12,
+            vec![
+                item(21, 12, "子回复甲", None),
+                item(22, 12, "子回复乙", None),
+            ],
+        );
+
+        list.enter_sub_thread(1, 12);
+        assert!(list.in_sub_thread());
+
+        // build at a width where messages fit one line
+        list.build_entries(80);
+        let kinds: Vec<EntryKind> = list.entries.iter().map(|e| e.kind).collect();
+        // focus reply, two children, then the back row
+        assert_eq!(
+            kinds,
+            vec![
+                EntryKind::Reply,
+                EntryKind::SubReply,
+                EntryKind::SubReply,
+                EntryKind::Toggle
+            ]
+        );
+        // focus row is the usize::MAX marker
+        assert_eq!(list.entries[0].reply_index, usize::MAX);
+
+        list.leave_sub_thread();
+        assert!(!list.in_sub_thread());
+    }
+
+    #[test]
+    fn selected_reply_pos_only_for_floor_replies() {
+        let mut list = CommentList::new();
+        list.set_comments(vec![item(1, 0, "主评论", Some(1))], 1);
+        list.replies.insert(1, vec![item(11, 1, "回复", None)]);
+        list.expanded.insert(1);
+        list.build_entries(80);
+
+        // walk entries; a Reply entry exposes (comment, reply), a Comment does not
+        let mut saw_reply = false;
+        for i in 0..list.entries.len() {
+            list.selected_entry = i;
+            if let Some((ci, ri)) = list.selected_reply_pos() {
+                assert_eq!(ci, 0);
+                assert_eq!(ri, 0);
+                saw_reply = true;
+            }
+        }
+        assert!(saw_reply);
     }
 }

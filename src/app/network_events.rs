@@ -207,6 +207,8 @@ impl App {
                 comments,
                 has_more_comments: _,
                 related_videos,
+                up_follower,
+                following,
             } => {
                 if !self.is_latest_request("video_detail", req_id) {
                     return;
@@ -216,6 +218,8 @@ impl App {
                         return;
                     }
                     page.video_info = Some(video_info);
+                    page.up_follower = up_follower;
+                    page.following = following;
                     let total = comments.len() as i64;
                     page.comment_list.set_comments(comments, total);
                     page.comment_page = 1;

@@ -146,6 +146,15 @@ pub fn panel_block_bg<'a>(
 }
 
 /// Like [`panel_block_bg`], but optionally draws a faint divider line under
+/// Truncate by characters, appending an ellipsis when cut.
+pub fn truncate_chars(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        text.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
+    }
+}
+
 /// UI Component trait
 pub trait Component {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings);

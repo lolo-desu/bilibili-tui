@@ -70,7 +70,12 @@ $cb0 = [Win+EnumProc]{
 [Win]::EnumWindows($cb0, [IntPtr]::Zero) | Out-Null
 
 # Escape quotes for Start-Process argument passing
-tools/launch_tui.cmd "$Exe" "$Open"
+if ($Open -ne "") {
+  # Quote the spec so wt/cmd keep it as one argv entry (commas break %~2).
+  start-process wt.exe -ArgumentList @('new-tab', '--title', 'bilibilitui', '-p', 'Windows PowerShell', 'cmd', '/c', "`"$Exe`" --open `"$Open`"")
+} else {
+  tools/launch_tui.cmd "$Exe" "$Open"
+}
 Start-Sleep -Milliseconds 2500
 Start-Sleep -Milliseconds ($LoadDelay * 1000)
 

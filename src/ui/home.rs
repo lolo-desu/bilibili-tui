@@ -58,8 +58,8 @@ pub struct HomePage {
 
 impl HomePage {
     fn draw_sources(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        // Vertical tab strip: same surface as the sidebar, logo row on top
-        // (aligned with the sidebar header), spaced tab rows below.
+        // Tabs column: light search-box style entry pinned on top, tab
+        // items below. No logo here (the sidebar carries the branding).
         let block = Block::default()
             .style(Style::default().bg(theme.bg_secondary))
             .borders(Borders::LEFT)
@@ -71,63 +71,124 @@ impl HomePage {
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4), // Logo row (mirrors the sidebar header)
-                Constraint::Min(5),    // Tabs
+                Constraint::Length(3), // search box (light surface)
+                Constraint::Length(1), // gap
+                Constraint::Min(5),    // tabs
             ])
             .split(outer);
-        super::sidebar::render_logo(frame, rows[0], theme);
 
-        // Two terminal rows per tab keeps them readable without feeling cramped.
+        // Search box: lighter surface + border, search glyph + label.
+        let search_selected = self.selected_source == 0;
+        let search_bg = if search_selected {
+            theme.bg_highlight
+        } else {
+            theme.bg_modal
+        };
+        let search_block = Block::default()
+            .style(Style::default().bg(search_bg))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Plain)
+            .border_style(Style::default().fg(if search_selected {
+                theme.border_focused
+            } else {
+                search_bg
+            }));
+        let box_area = Rect {
+            x: outer.x + 1,
+            y: rows[0].y,
+            width: outer.width.saturating_sub(2),
+            height: 3,
+        };
+        frame.render_widget(search_block, box_area);
+        let search_text = Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!("{} ", icons::SEARCH),
+                Style::default().fg(if search_selected {
+                    theme.bilibili_pink
+                } else {
+                    theme.fg_muted
+                }),
+            ),
+            Span::styled(
+                "搜索",
+                Style::default()
+                    .fg(theme.fg_primary)
+                    .add_modifier(if search_selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+            ),
+        ]));
+        frame.render_widget(
+            search_text,
+            Rect {
+                x: box_area.x + 1,
+                y: box_area.y + 1,
+                width: box_area.width.saturating_sub(2),
+                height: 1,
+            },
+        );
+
+        // Tabs (source 0 = the search box above).
+        let tabs_area = rows[2];
+        let count = self.source_count();
         let mut constraints: Vec<Constraint> = Vec::new();
-        for index in 0..self.source_count() {
-            let _ = index;
-            constraints.push(Constraint::Length(2));
+        for _ in 1..count {
+            constraints.push(Constraint::Length(3)); // taller selection block
         }
         constraints.push(Constraint::Min(0));
         let tabs = Layout::default()
             .direction(Direction::Vertical)
             .constraints(constraints)
-            .split(rows[1]);
+            .split(tabs_area);
 
-        for (index, tab_area) in tabs.iter().enumerate() {
-            if index >= self.source_count() {
+        for (ti, tab_area) in tabs.iter().enumerate() {
+            let index = ti + 1;
+            if index >= count {
                 break;
             }
             let is_selected = index == self.selected_source;
-            // Tab pill occupies the upper row; lower row is pure spacing.
-            let pill = Rect {
-                height: 1,
-                ..*tab_area
-            };
-            let label = self.source_label(index);
+            // Selected tab fills the full 3-row block with its surface.
             if is_selected {
-                let selected = Line::from(vec![
-                    Span::styled(
-                        "▌",
-                        Style::default()
-                            .fg(theme.bilibili_pink)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        label,
-                        Style::default()
-                            .fg(theme.fg_primary)
-                            .add_modifier(Modifier::BOLD)
-                            .bg(theme.bg_card),
-                    ),
-                ]);
                 frame.render_widget(
                     Block::default().style(Style::default().bg(theme.bg_card)),
-                    pill,
+                    Rect {
+                        height: 3.min(tab_area.height),
+                        ..*tab_area
+                    },
                 );
-                frame.render_widget(Paragraph::new(selected), pill);
-            } else {
-                let normal = Paragraph::new(Line::from(Span::styled(
-                    format!("  {label}"),
-                    Style::default().fg(theme.fg_secondary),
-                )));
-                frame.render_widget(normal, pill);
             }
+            let label = self.source_label(index);
+            let mut spans = Vec::new();
+            if is_selected {
+                spans.push(Span::styled(
+                    "▌ ",
+                    Style::default()
+                        .fg(theme.bilibili_pink)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                spans.push(Span::raw("   "));
+            }
+            spans.push(Span::styled(
+                label,
+                if is_selected {
+                    Style::default()
+                        .fg(theme.fg_primary)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.fg_secondary)
+                },
+            ));
+            frame.render_widget(
+                Paragraph::new(Line::from(spans)),
+                Rect {
+                    y: tab_area.y + 1, // middle row of the 3-row block
+                    height: 1,
+                    ..*tab_area
+                },
+            );
         }
     }
 
@@ -216,8 +277,9 @@ impl HomePage {
     const COLUMN_CHOICES: [usize; 4] = [1, 2, 3, 4];
     /// 卡片高度
     const CARD_HEIGHT: u16 = 8;
-    /// Height of vertical grid cards used at 3-4 columns (cover + 3 text rows).
-    const GRID_CARD_HEIGHT: u16 = 12;
+    /// Non-cover rows of a vertical grid card: gap + title(2) + duration
+    /// + up + stats + borders.
+    const GRID_CARD_EXTRA: u16 = 8;
     /// 预取缓冲行数（可见区域之外额外下载）
     const PREFETCH_BUFFER_ROWS: usize = 2;
     /// 初始可见行数回退值（首次渲染前使用）
@@ -417,18 +479,25 @@ impl HomePage {
         self.search.poll_cover_results();
     }
 
-    fn visible_rows(&self, height: u16) -> usize {
+    fn visible_rows(&self, height: u16, grid_width: u16) -> usize {
         let available_height = height.saturating_sub(1);
-        (available_height / self.effective_card_height()).max(1) as usize
+        (available_height / self.effective_card_height(grid_width)).max(1) as usize
+    }
+
+    /// Cover rows for a 16:9 image at the given card width (cells are
+    /// ~1:2, so rows = width * 9/32), clamped for sanity.
+    fn cover_height(&self, card_width: u16) -> u16 {
+        ((card_width as u32 * 9 / 32) as u16).clamp(7, 12)
     }
 
     /// Horizontal list cards (1-2 cols) are short; vertical grid cards
-    /// (3-4 cols) carry a tall cover on top so all covers keep one size.
-    fn effective_card_height(&self) -> u16 {
+    /// (3-4 cols) carry a 16:9 cover on top sized by the card width.
+    fn effective_card_height(&self, grid_width: u16) -> u16 {
         if self.columns <= 2 {
             self.card_height
         } else {
-            Self::GRID_CARD_HEIGHT
+            let card_width = (grid_width / self.columns as u16).max(8);
+            self.cover_height(card_width) + Self::GRID_CARD_EXTRA
         }
     }
 
@@ -811,7 +880,8 @@ impl Component for HomePage {
                 if event.row >= content_top && event.row < content_bottom {
                     // Calculate which card was clicked
                     let relative_y = event.row - content_top;
-                    let click_row = (relative_y / self.effective_card_height()) as usize;
+                    let click_row =
+                        (relative_y / self.effective_card_height(panes[1].width)) as usize;
                     let actual_row = self.scroll_row + click_row;
 
                     let card_width = panes[1].width / self.columns as u16;
@@ -865,12 +935,15 @@ impl Component for HomePage {
 
 impl HomePage {
     fn render_grid(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let visible_rows = self.visible_rows(area.height);
+        let visible_rows = self.visible_rows(area.height, area.width);
         self.cached_visible_rows = visible_rows;
 
-        let row_constraints: Vec<Constraint> = (0..visible_rows)
-            .map(|_| Constraint::Min(self.effective_card_height()))
+        // Fixed-height rows plus a spacer so leftover space never
+        // stretches the last card row (Flex::Legacy quirk).
+        let mut row_constraints: Vec<Constraint> = (0..visible_rows)
+            .map(|_| Constraint::Length(self.effective_card_height(area.width)))
             .collect();
+        row_constraints.push(Constraint::Min(0));
 
         let rows = Layout::default()
             .direction(Direction::Vertical)
@@ -921,17 +994,6 @@ impl HomePage {
         is_selected: bool,
         theme: &Theme,
     ) {
-        let title_span = if is_selected {
-            Span::styled(
-                " ▶ ",
-                Style::default()
-                    .fg(theme.fg_accent)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            Span::raw("")
-        };
-
         let card_bg = if is_selected {
             theme.bg_highlight
         } else {
@@ -945,29 +1007,36 @@ impl HomePage {
                 theme.border_focused
             } else {
                 theme.bg_card
-            }))
-            .title(title_span);
+            }));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // 3-4 columns: vertical web-style card (full-width cover on top);
+        // 3-4 columns: vertical web-style card (cover on top);
         // 1-2 columns: horizontal list card (cover left, info right)
         let vertical = self.columns >= 3;
+        let cover_h = if vertical {
+            self.cover_height(inner.width)
+        } else {
+            7
+        };
         let card_chunks = if vertical {
             Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(4), Constraint::Length(4)])
+                .constraints([
+                    Constraint::Length(cover_h), // ~16:9 cover (full width)
+                    Constraint::Length(1),       // breathing room between cover and text
+                    Constraint::Min(5),          // text block
+                ])
                 .split(inner)
         } else {
             Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Length(28), Constraint::Min(30)])
+                .constraints([Constraint::Length(24), Constraint::Min(20)])
                 .split(inner)
         };
 
-        // Cover container: fill it edge-to-edge with a 16:9 center-crop so
-        // every cover shares the same size and aspect ratio.
+        // Cover fills its container via center-crop (uniform aspect).
         let cover_area = card_chunks[0];
         if let Some(cover) = &mut self.videos[video_idx].cover {
             let image_widget = StatefulImage::default().resize(Resize::Crop(None));
@@ -985,9 +1054,11 @@ impl HomePage {
             frame.render_widget(placeholder, cover_area);
         }
 
-        // Video info: title block on top, meta rows glued to the bottom edge
-        // (bottom-up: duration/stats on the last line, UP line above it).
-        let info_area = card_chunks[1];
+        let info_area = if vertical {
+            card_chunks[2]
+        } else {
+            card_chunks[1]
+        };
         let card = &self.videos[video_idx];
 
         let title = card.video.title.as_deref().unwrap_or("无标题");
@@ -995,18 +1066,11 @@ impl HomePage {
         let views = card.video.format_views();
         let duration = card.video.format_duration();
 
-        let title_width = (info_area.width as usize).saturating_sub(2);
+        let title_width = (info_area.width as usize).saturating_sub(1);
         let title_lines: Vec<String> = Self::wrap_title(title, title_width.max(8), 2);
 
         let meta_style = Style::default().fg(theme.fg_secondary);
 
-        let follower = card
-            .video
-            .owner
-            .as_ref()
-            .and_then(|owner| owner.follower)
-            .map(format_count)
-            .unwrap_or_else(|| "-".to_string());
         let danmaku = card
             .video
             .stat
@@ -1014,48 +1078,69 @@ impl HomePage {
             .and_then(|stat| stat.danmaku)
             .map(format_count)
             .unwrap_or_else(|| "-".to_string());
+        // The recommendation API omits reply counts; hide that segment then.
         let replies = card
             .video
             .stat
             .as_ref()
             .and_then(|stat| stat.reply)
-            .map(format_count)
-            .unwrap_or_else(|| "-".to_string());
+            .map(format_count);
 
-        // bottom-up rows; the list is rendered bottom-anchored below
-        let rows: Vec<Line> = vec![
-            Line::from(vec![
-                Span::styled(format!("▶ {views}"), meta_style),
-                Span::styled(format!("  弹幕 {danmaku}"), meta_style),
-                Span::styled(format!("  评论 {replies}"), meta_style),
-                Span::styled(format!("  {duration}"), Style::default().fg(theme.success)),
-            ]),
-            Line::from(vec![
-                Span::styled("UP ", meta_style),
-                Span::styled(author, Style::default().fg(theme.bilibili_cyan)),
-                Span::styled(format!("  ·  {follower} 关注"), meta_style),
-            ]),
-        ];
+        // Stats row: view / danmaku / reply, each with an icon.
+        let mut stats_spans = vec![Span::styled(
+            format!("{} {}", icons::PLAY, views),
+            meta_style,
+        )];
+        stats_spans.push(Span::styled(
+            format!("  {} {}", icons::DANMAKU, danmaku),
+            meta_style,
+        ));
+        if let Some(replies) = replies {
+            stats_spans.push(Span::styled(
+                format!("  {} {}", icons::COMMENT, replies),
+                meta_style,
+            ));
+        }
+        let up_row = Line::from(vec![
+            Span::styled("UP ", meta_style),
+            Span::styled(author, Style::default().fg(theme.bilibili_cyan)),
+        ]);
+        let stats_row = Line::from(stats_spans);
+        let duration_row = Line::from(Span::styled(duration, Style::default().fg(theme.success)));
+
+        // Top block: title then duration right below it; bottom rows: UP
+        // line above the stats line, glued to the card bottom.
+        let rows = vec![up_row, stats_row];
+        let title_block: Vec<Line> = title_lines
+            .iter()
+            .take(2)
+            .map(|t| {
+                Line::from(Span::styled(
+                    t,
+                    if is_selected {
+                        Style::default()
+                            .fg(theme.fg_primary)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(theme.fg_secondary)
+                    },
+                ))
+            })
+            .collect();
 
         let info_lines = info_area.height as usize;
-        let meta_count = rows.len();
-        let title_capacity = info_lines.saturating_sub(meta_count);
-        let title_gap = title_capacity.saturating_sub(title_lines.len().min(title_capacity));
-
         let mut lines: Vec<Line> = Vec::new();
-        for text in title_lines.iter().take(title_capacity) {
-            lines.push(Line::from(Span::styled(
-                text,
-                if is_selected {
-                    Style::default()
-                        .fg(theme.fg_primary)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme.fg_secondary)
-                },
-            )));
+        let bottom_count = rows.len();
+        let top_cap = info_lines.saturating_sub(bottom_count);
+        let title_count = title_block.len().min(top_cap);
+        lines.extend(title_block.into_iter().take(title_count));
+        if title_count < top_cap {
+            lines.push(duration_row);
         }
-        for _ in 0..title_gap {
+        for _ in 0..info_lines
+            .saturating_sub(title_count + bottom_count)
+            .saturating_sub(1)
+        {
             lines.push(Line::raw(""));
         }
         lines.extend(rows);
@@ -1063,8 +1148,6 @@ impl HomePage {
         let info = Paragraph::new(lines);
         frame.render_widget(info, info_area);
     }
-
-    /// Word-safe title wrapping with a hard line cap.
     fn wrap_title(text: &str, width: usize, max_lines: usize) -> Vec<String> {
         wrap_text_chars(text, width, max_lines)
     }

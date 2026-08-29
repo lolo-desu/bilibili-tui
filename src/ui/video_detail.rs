@@ -227,6 +227,41 @@ impl VideoDetailPage {
         self.loading_more_comments = false;
     }
 
+    /// Open the APP-style conversation of the floor reply `reply_index`
+    /// under comment `comment_index`: fetch its children and switch view.
+    pub async fn open_sub_thread(
+        &mut self,
+        comment_index: usize,
+        reply_index: usize,
+        api_client: &ApiClient,
+    ) {
+        let Some(comment) = self.comment_list.comments.get(comment_index) else {
+            return;
+        };
+        let root_rpid = comment.rpid;
+        let Some(reply) = self
+            .comment_list
+            .replies
+            .get(&root_rpid)
+            .and_then(|rs| rs.get(reply_index))
+            .cloned()
+        else {
+            return;
+        };
+        let focus_rpid = reply.rpid;
+        if !self.comment_list.sub_replies.contains_key(&focus_rpid) {
+            // children live one level deeper via the same reply/reply API
+            if let Ok(data) = api_client
+                .get_comment_replies(self.aid, focus_rpid, 1)
+                .await
+            {
+                let children = data.replies.unwrap_or_default();
+                self.comment_list.set_sub_replies(focus_rpid, children);
+            }
+        }
+        self.comment_list.enter_sub_thread(root_rpid, focus_rpid);
+    }
+
     pub async fn toggle_comment_replies(&mut self, api_client: &ApiClient) {
         let Some(comment) = self.comment_list.selected_comment() else {
             return;
@@ -364,52 +399,14 @@ impl VideoDetailPage {
 
         if let Some(ref info) = self.video_info {
             let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Length(5), Constraint::Min(20)])
-                .split(inner);
-
-            // Avatar cell (5 wide x 4 tall ≈ square glyph aspect)
-            let avatar_area = Rect {
-                x: chunks[0].x,
-                y: chunks[0].y,
-                width: 4.min(chunks[0].width),
-                height: 4.min(chunks[0].height),
-            };
-            let face_key = (Some(info.owner.mid), info.owner.name.clone());
-            // The picker may not be queryable while the page is still loading;
-            // re-request from the render loop until the avatar arrives.
-            if self.up_avatar.get(&face_key).is_none() {
-                self.up_avatar.request(std::iter::once((
-                    face_key.clone(),
-                    Some(info.owner.face.clone()),
-                )));
-            }
-            let avatar_ready = self.up_avatar.get(&face_key).is_some();
-            if avatar_ready && let Some(protocol) = self.up_avatar.get_mut(&face_key) {
-                frame.render_stateful_widget(
-                    ratatui_image::StatefulImage::default()
-                        .resize(ratatui_image::Resize::Crop(None)),
-                    avatar_area,
-                    protocol,
-                );
-            }
-            if !avatar_ready {
-                let ph = Paragraph::new(icons::USER)
-                    .style(Style::default().fg(theme.fg_muted))
-                    .alignment(Alignment::Center);
-                frame.render_widget(ph, avatar_area);
-            }
-
-            // Text column: title / UP line / stats / description
-            let text_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(1), // Title
-                    Constraint::Length(1), // UP line (name + hint below moved: hint on its own row)
+                    Constraint::Length(1), // UP line
                     Constraint::Length(1), // Stats
                     Constraint::Min(1),    // Description
                 ])
-                .split(chunks[1]);
+                .split(inner);
 
             // Title
             let title = Paragraph::new(info.title.clone()).style(
@@ -417,32 +414,30 @@ impl VideoDetailPage {
                     .fg(theme.fg_primary)
                     .add_modifier(Modifier::BOLD),
             );
-            frame.render_widget(title, text_chunks[0]);
+            frame.render_widget(title, chunks[0]);
 
-            // UP name; the "u 主页" hint lives on its own row below
+            // UP name + u 主页 hint on one row (web shows plain text here)
             let author = Paragraph::new(Line::from(vec![
                 Span::styled("UP ", Style::default().fg(theme.fg_muted)),
                 Span::styled(
                     info.owner.name.clone(),
                     Style::default()
                         .fg(theme.bilibili_blue)
-                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(
+                        "  ·  u 主页{}",
+                        match self.up_follower {
+                            Some(f) =>
+                                format!("  ·  {} 粉丝", crate::ui::comment_list::format_count(f)),
+                            None => String::new(),
+                        }
+                    ),
+                    Style::default().fg(theme.fg_muted),
                 ),
             ]));
-            frame.render_widget(author, text_chunks[1]);
-
-            let hint = format!(
-                "u 主页{}",
-                match self.up_follower {
-                    Some(f) => format!("  ·  {} 关注", crate::ui::comment_list::format_count(f)),
-                    None => String::new(),
-                }
-            );
-            let hint = Paragraph::new(Line::from(Span::styled(
-                hint,
-                Style::default().fg(theme.fg_muted),
-            )));
-            frame.render_widget(hint, text_chunks[2]);
+            frame.render_widget(author, chunks[1]);
 
             // Stats
             let stats = Paragraph::new(Line::from(vec![
@@ -455,7 +450,7 @@ impl VideoDetailPage {
                     Style::default().fg(theme.fg_secondary),
                 ),
                 Span::styled(
-                    format!("{} ", icons::DANMAKU),
+                    format!("  {} ", icons::DANMAKU),
                     Style::default().fg(theme.fg_secondary),
                 ),
                 Span::styled(
@@ -463,7 +458,7 @@ impl VideoDetailPage {
                     Style::default().fg(theme.fg_secondary),
                 ),
                 Span::styled(
-                    format!("{} ", icons::LIKE),
+                    format!("  {} ", icons::LIKE),
                     Style::default().fg(theme.fg_secondary),
                 ),
                 Span::styled(
@@ -471,7 +466,7 @@ impl VideoDetailPage {
                     Style::default().fg(theme.fg_secondary),
                 ),
                 Span::styled(
-                    format!("{} ", icons::COIN),
+                    format!("  {} ", icons::COIN),
                     Style::default().fg(theme.fg_secondary),
                 ),
                 Span::styled(
@@ -479,7 +474,7 @@ impl VideoDetailPage {
                     Style::default().fg(theme.fg_secondary),
                 ),
                 Span::styled(
-                    format!("{} ", icons::STAR),
+                    format!("  {} ", icons::STAR),
                     Style::default().fg(theme.fg_secondary),
                 ),
                 Span::styled(
@@ -487,37 +482,23 @@ impl VideoDetailPage {
                     Style::default().fg(theme.fg_secondary),
                 ),
             ]));
-            frame.render_widget(stats, text_chunks[3]);
+            frame.render_widget(stats, chunks[2]);
 
-            // Follow button pinned to the right edge of the info panel
-            if let Some(owner) = Some(&info.owner) {
-                let _ = owner;
-                let btn = Rect {
-                    x: inner.x + inner.width.saturating_sub(10),
-                    y: inner.y,
-                    width: 9.min(inner.width),
-                    height: 1,
-                };
-                let (label, fg, bg) = match self.following {
-                    Some(true) => (" 已关注 ".to_string(), theme.fg_muted, theme.bg_card),
-                    _ => (
-                        " + 关注 ".to_string(),
-                        theme.fg_primary,
-                        theme.bilibili_pink,
-                    ),
-                };
-                let btn_widget = Paragraph::new(Line::from(Span::styled(
-                    label,
-                    Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
-                )))
-                .alignment(Alignment::Center);
-                frame.render_widget(btn_widget, btn);
-            }
-        } else {
-            let loading = Paragraph::new("加载中...")
-                .style(Style::default().fg(theme.warning))
-                .alignment(Alignment::Center);
-            frame.render_widget(loading, inner);
+            // Description (dimmed, single line)
+            let desc = info
+                .desc
+                .as_deref()
+                .unwrap_or("")
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let desc = Paragraph::new(crate::ui::truncate_chars(
+                desc.trim(),
+                (chunks[3].width as usize).saturating_sub(1),
+            ))
+            .style(Style::default().fg(theme.fg_muted));
+            frame.render_widget(desc, chunks[3]);
         }
     }
 
@@ -525,28 +506,43 @@ impl VideoDetailPage {
         let is_focused = self.focus == DetailFocus::Comments;
         let total = self.comment_list.comments.len();
         let more_hint = if self.comment_list.has_more { "+" } else { "" };
-        let sort_icon = self.comment_list.sort_icon();
         let sort_label = self.comment_list.sort_label();
         let block = panel_block_bg(
             theme,
             Some(Line::from(vec![
                 Span::styled(
-                    format!(" {} 评论 {}{} ", icons::COMMENT, total, more_hint),
-                    Style::default().fg(if is_focused {
+                    format!(" 评论 {}{} ", total, more_hint),
+                    Style::default()
+                        .fg(theme.fg_primary)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                // text sort tabs: unselected first, selected marked bold+pink
+                Span::styled(
+                    if sort_label == "最热" {
+                        " 最热"
+                    } else {
+                        "  最热"
+                    },
+                    Style::default().fg(if sort_label == "最热" {
                         theme.bilibili_pink
                     } else {
                         theme.fg_muted
                     }),
                 ),
+                Span::styled(" | ", Style::default().fg(theme.border_subtle)),
                 Span::styled(
-                    format!(" {}·{} ", sort_icon, sort_label),
-                    Style::default().fg(if is_focused {
-                        theme.bilibili_cyan
+                    if sort_label == "最新" {
+                        "最新"
+                    } else {
+                        " 最新"
+                    },
+                    Style::default().fg(if sort_label == "最新" {
+                        theme.bilibili_pink
                     } else {
                         theme.fg_muted
                     }),
                 ),
-                Span::styled(" (t切换) ", Style::default().fg(theme.fg_muted)),
+                Span::styled("  (t切换)", Style::default().fg(theme.fg_muted)),
             ])),
             is_focused,
             theme.bg_secondary, // comments sit one step darker than related
@@ -578,6 +574,123 @@ impl VideoDetailPage {
             .render(frame, list_area, theme, is_focused);
     }
 
+    /// Right rail: UP card on top (web order), then episodes + related.
+    fn render_right_column(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(7), // UP card
+                Constraint::Min(8),    // episodes (if any) or related
+                Constraint::Min(8),    // related
+            ])
+            .split(area);
+
+        self.render_up_card(frame, rows[0], theme);
+
+        if self.has_multiple_pages() {
+            self.render_episodes(frame, rows[1], theme);
+            self.render_related(frame, rows[2], theme);
+        } else {
+            self.render_related(frame, rows[1], theme);
+        }
+    }
+
+    /// UP card: avatar left, name + follower + follow button right (web).
+    fn render_up_card(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let block = panel_block_bg(theme, None, false, theme.bg_card);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let Some(info) = self.video_info.as_ref() else {
+            return;
+        };
+        let mid = info.owner.mid;
+        let name = info.owner.name.clone();
+        let face = info.owner.face.clone();
+
+        let face_key = (Some(mid), name.clone());
+        if self.up_avatar.get(&face_key).is_none() {
+            // re-request from the render loop until the picker is ready
+            self.up_avatar
+                .request(std::iter::once((face_key.clone(), Some(face))));
+        }
+        let avatar_ready = self.up_avatar.get(&face_key).is_some();
+
+        // avatar column (6 wide) + text column; cells are ~1:2 so a square
+        // face needs cols = 2 x rows.
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(7), Constraint::Min(10)])
+            .split(inner);
+        if avatar_ready && let Some(protocol) = self.up_avatar.get_mut(&face_key) {
+            let avatar_area = Rect {
+                width: 6.min(cols[0].width),
+                height: 3.min(cols[0].height),
+                ..cols[0]
+            };
+            frame.render_stateful_widget(
+                ratatui_image::StatefulImage::default().resize(ratatui_image::Resize::Crop(None)),
+                avatar_area,
+                protocol,
+            );
+        } else {
+            let ph = Paragraph::new(icons::USER)
+                .style(Style::default().fg(theme.fg_muted))
+                .alignment(Alignment::Center);
+            frame.render_widget(ph, cols[0]);
+        }
+
+        let text_rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // name
+                Constraint::Length(1), // follower
+                Constraint::Length(1), // gap
+                Constraint::Length(1), // follow button
+            ])
+            .split(cols[1]);
+
+        let name_p = Paragraph::new(Span::styled(
+            super::truncate_chars(&name, (cols[1].width as usize).saturating_sub(2)),
+            Style::default()
+                .fg(theme.bilibili_blue)
+                .add_modifier(Modifier::BOLD),
+        ));
+        frame.render_widget(name_p, text_rows[0]);
+
+        let fans = match self.up_follower {
+            Some(f) => format!("{} 粉丝", crate::ui::comment_list::format_count(f)),
+            None => String::new(),
+        };
+        let fans_p = Paragraph::new(Span::styled(fans, Style::default().fg(theme.fg_muted)));
+        frame.render_widget(fans_p, text_rows[1]);
+
+        let (label, fg, bg) = match self.following {
+            Some(true) => (
+                " 已关注 ".to_string(),
+                theme.fg_secondary,
+                theme.bg_secondary,
+            ),
+            _ => (
+                " + 关注 ".to_string(),
+                theme.fg_primary,
+                theme.bilibili_pink,
+            ),
+        };
+        let btn_w = 10.min(cols[1].width);
+        let btn = Paragraph::new(Line::from(Span::styled(
+            label,
+            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
+        )));
+        let btn_area = Rect {
+            x: cols[1].x,
+            y: text_rows[3].y,
+            width: btn_w,
+            height: 1,
+        };
+        frame.render_widget(btn, btn_area);
+    }
+
     fn render_related(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let is_focused = self.focus == DetailFocus::Related;
         let block = panel_block_bg(
@@ -597,25 +710,17 @@ impl VideoDetailPage {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Gap + faint divider under the panel title.
-        let rule = Rect {
-            y: inner.y + 1,
-            height: 1,
-            ..inner
-        };
+        // Breathing room below the title, then list.
         let list_area = Rect {
-            y: inner.y + 2,
-            height: inner.height.saturating_sub(2),
+            y: inner.y + 1,
+            height: inner.height.saturating_sub(1),
             ..inner
         };
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "─".repeat(rule.width as usize),
-                Style::default().fg(theme.border_subtle),
-            ))),
-            rule,
-        );
+        self.render_related_list(frame, list_area, theme);
+    }
 
+    fn render_related_list(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let list_area = area;
         if self.related_card_grid.cards.is_empty() {
             let empty = Paragraph::new("暂无相关视频")
                 .style(Style::default().fg(theme.fg_secondary))
@@ -729,74 +834,26 @@ impl VideoDetailPage {
 
 impl Component for VideoDetailPage {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings) {
-        // Adjust layout based on input mode
-        let chunks = if self.input_mode {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(6), // Video info
-                    Constraint::Min(8),    // Comments + Related
-                    Constraint::Length(3), // Input box
-                    Constraint::Length(2), // Help
-                ])
-                .split(area)
-        } else {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(6), // Video info
-                    Constraint::Min(10),   // Comments + Related
-                    Constraint::Length(3), // Help (vertically centered)
-                ])
-                .split(area)
-        };
+        // Web layout: LEFT = info + comments; RIGHT = UP card + episodes +
+        // related. The comment panel stretches to the window bottom and the
+        // shortcut row overlays its lower padding.
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(40), Constraint::Length(56)])
+            .split(area);
 
-        // Video info
-        self.render_video_info(frame, chunks[0], theme);
-
-        if self.loading {
-            let loading = Paragraph::new("⏳ 加载中...")
-                .style(Style::default().fg(theme.warning))
-                .alignment(Alignment::Center)
-                .block(panel_block(theme, None, false));
-            frame.render_widget(loading, chunks[1]);
-        } else if let Some(error) = &self.error_message {
-            let error_widget = Paragraph::new(format!("{} {}", icons::ERROR, error))
-                .style(Style::default().fg(theme.error))
-                .alignment(Alignment::Center)
-                .block(panel_block(theme, None, false));
-            frame.render_widget(error_widget, chunks[1]);
-        } else {
-            // Comments and Related split
-            let content_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(60), // Comments
-                    Constraint::Percentage(40), // Related + Episodes
-                ])
-                .split(chunks[1]);
-
-            self.render_comments(frame, content_chunks[0], theme);
-
-            // Right panel: Episodes (if multi-part) + Related videos
-            if self.has_multiple_pages() {
-                let right_chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Percentage(50), // Episodes
-                        Constraint::Percentage(50), // Related
-                    ])
-                    .split(content_chunks[1]);
-
-                self.render_episodes(frame, right_chunks[0], theme);
-                self.render_related(frame, right_chunks[1], theme);
-            } else {
-                self.render_related(frame, content_chunks[1], theme);
-            }
-        }
-
-        // Input box (only in input mode)
         if self.input_mode {
+            // Input mode: info top, editor + hints below (left column only).
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(6), // video info
+                    Constraint::Length(3), // editor
+                    Constraint::Length(3), // hints
+                    Constraint::Min(0),
+                ])
+                .split(columns[0]);
+            self.render_video_info(frame, rows[0], theme);
             let input_block = Block::default()
                 .style(Style::default().bg(theme.bg_secondary))
                 .title(Span::styled(
@@ -805,50 +862,88 @@ impl Component for VideoDetailPage {
                         .fg(theme.bilibili_pink)
                         .add_modifier(Modifier::BOLD),
                 ));
-
             let input_text = format!("{}_", self.input_buffer);
             let input = Paragraph::new(input_text)
                 .style(Style::default().fg(theme.fg_primary))
                 .block(input_block);
-            frame.render_widget(input, chunks[2]);
-        }
-
-        // Help
-        let help_chunk = if self.input_mode {
-            chunks[3]
-        } else {
-            chunks[2]
-        };
-        let help = if self.input_mode {
-            shortcut_footer(
+            frame.render_widget(input, rows[1]);
+            let help = shortcut_footer(
                 theme,
                 [
                     (keys.confirm.clone(), "发送评论".into(), theme.success),
                     (keys.back.clone(), "取消".into(), theme.info),
                 ],
-            )
+            );
+            let help = Paragraph::new(help)
+                .alignment(Alignment::Center)
+                .block(Block::default().padding(ratatui::widgets::Padding::new(0, 0, 1, 0)));
+            frame.render_widget(help, rows[2]);
+            // right column keeps its content
+            self.render_right_column(frame, columns[1], theme);
+            return;
+        }
+
+        let left_rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(6), // video info
+                Constraint::Min(10),   // comments (to the window bottom)
+            ])
+            .split(columns[0]);
+
+        self.render_video_info(frame, left_rows[0], theme);
+
+        if self.loading {
+            let loading = Paragraph::new("⏳ 加载中...")
+                .style(Style::default().fg(theme.warning))
+                .alignment(Alignment::Center)
+                .block(panel_block(theme, None, false));
+            frame.render_widget(loading, left_rows[1]);
+        } else if let Some(error) = &self.error_message {
+            let error_widget = Paragraph::new(format!("{} {}", icons::ERROR, error))
+                .style(Style::default().fg(theme.error))
+                .alignment(Alignment::Center)
+                .block(panel_block(theme, None, false));
+            frame.render_widget(error_widget, left_rows[1]);
         } else {
-            shortcut_footer(
-                theme,
-                [
-                    (
-                        format!("{}/{}", keys.nav_up, keys.nav_down),
-                        "选择".into(),
-                        theme.fg_accent,
-                    ),
-                    ("Space".into(), "展开回复".into(), theme.success),
-                    ("r".into(), "点赞".into(), theme.warning),
-                    (keys.comment.clone(), "评论".into(), theme.info),
-                    ("t".into(), "最热/最新".into(), theme.info),
-                    (keys.play.clone(), "播放".into(), theme.success),
-                    (keys.back.clone(), "返回".into(), theme.info),
-                ],
-            )
-        };
-        let help = Paragraph::new(help)
-            .alignment(Alignment::Center)
-            .block(Block::default().padding(ratatui::widgets::Padding::new(0, 0, 1, 0)));
-        frame.render_widget(help, help_chunk);
+            self.render_comments(frame, left_rows[1], theme);
+
+            // Shortcut row overlays the comments panel's bottom padding.
+            let footer_area = Rect {
+                x: left_rows[1].x + 1,
+                y: area.bottom().saturating_sub(3),
+                width: left_rows[1].width.saturating_sub(2),
+                height: 3,
+            };
+            let in_thread = self.comment_list.sub_thread.is_some();
+            let mut items = vec![
+                (
+                    format!("{}/{}", keys.nav_up, keys.nav_down),
+                    "选择".into(),
+                    theme.fg_accent,
+                ),
+                ("Space".into(), "展开回复".into(), theme.success),
+                ("r".into(), "点赞".into(), theme.warning),
+                ("c".into(), "评论".into(), theme.info),
+                ("t".into(), "最热/最新".into(), theme.info),
+            ];
+            if in_thread {
+                items.push(("Esc".into(), "退出对话".into(), theme.bilibili_pink));
+            } else {
+                items.push(("v".into(), "查看对话".into(), theme.bilibili_blue));
+            }
+            items.push(("u".into(), "UP主页".into(), theme.bilibili_blue));
+            items.push(("f".into(), "关注".into(), theme.bilibili_pink));
+            items.push((keys.play.clone(), "播放".into(), theme.success));
+            items.push((keys.back.clone(), "返回".into(), theme.info));
+            let help = shortcut_footer(theme, items);
+            let help = Paragraph::new(help)
+                .alignment(Alignment::Center)
+                .block(Block::default().style(Style::default().bg(theme.bg_secondary)));
+            frame.render_widget(help, footer_area);
+        }
+
+        self.render_right_column(frame, columns[1], theme);
     }
 
     fn handle_input(
@@ -891,6 +986,10 @@ impl Component for VideoDetailPage {
         }
 
         if keys.matches_quit(key) || keys.matches_back(key) {
+            if self.comment_list.in_sub_thread() {
+                self.comment_list.leave_sub_thread();
+                return Some(AppAction::None);
+            }
             return Some(AppAction::BackToList);
         }
         if key == KeyCode::Char('u')
@@ -914,6 +1013,19 @@ impl Component for VideoDetailPage {
             // Enter comment input mode
             self.input_mode = true;
             self.input_buffer.clear();
+            return Some(AppAction::None);
+        }
+        // 'v': APP-style conversation view of the selected floor reply.
+        if key == KeyCode::Char('v')
+            && self.focus == DetailFocus::Comments
+            && !self.comment_list.in_sub_thread()
+        {
+            if let Some((ci, ri)) = self.comment_list.selected_reply_pos() {
+                return Some(AppAction::OpenSubThread {
+                    comment_index: ci,
+                    reply_index: ri,
+                });
+            }
             return Some(AppAction::None);
         }
         if keys.matches_toggle_replies(key) {
@@ -1266,6 +1378,14 @@ fn comment_intent_to_action(intent: CommentIntent, aid: i64) -> Option<AppAction
         CommentIntent::PageReplies { comment_index } => {
             Some(AppAction::PageCommentReplies { comment_index })
         }
+        CommentIntent::OpenSubThread {
+            comment_index,
+            reply_index,
+        } => Some(AppAction::OpenSubThread {
+            comment_index,
+            reply_index,
+        }),
+        CommentIntent::CloseSubThread => Some(AppAction::CloseSubThread),
         CommentIntent::Like {
             comment_index,
             reply_index,

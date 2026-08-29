@@ -207,6 +207,8 @@ pub enum NetworkEvent {
         comments: Vec<CommentItem>,
         has_more_comments: bool,
         related_videos: Vec<RelatedVideoItem>,
+        up_follower: Option<i64>,
+        following: Option<bool>,
     },
     CommentsSortedLoaded {
         req_id: u64,
@@ -843,12 +845,22 @@ async fn handle_command(api_client: Arc<ApiClient>, command: NetworkCommand) -> 
                         .unwrap_or(false);
                     (comments, has_more)
                 }
-                Err(_) => (Vec::new(), false),
+                Err(e) => {
+                    log_silent_failure("video_detail_comments", e);
+                    (Vec::new(), false)
+                }
             };
-            let related_videos = api_client
+            let mut related_videos = api_client
                 .get_related_videos(&bvid)
                 .await
                 .unwrap_or_default();
+            enrich_related_followers(&api_client, &mut related_videos).await;
+            let up_follower = api_client
+                .get_relation_stat(video_info.owner.mid)
+                .await
+                .ok()
+                .and_then(|stat| stat.follower);
+            let following = api_client.is_following(video_info.owner.mid).await.ok();
             NetworkEvent::VideoDetailLoaded {
                 req_id,
                 bvid,
@@ -856,6 +868,8 @@ async fn handle_command(api_client: Arc<ApiClient>, command: NetworkCommand) -> 
                 comments,
                 has_more_comments,
                 related_videos,
+                up_follower,
+                following,
             }
         }
         NetworkCommand::LoadDynamicDetail { req_id, dynamic_id } => {
@@ -919,6 +933,62 @@ async fn handle_command(api_client: Arc<ApiClient>, command: NetworkCommand) -> 
                 },
                 Err(e) => failed(req_id, "bangumi_detail", e),
             }
+        }
+    }
+}
+
+/// Fetch follower counts for related-video UP cards (best effort).
+async fn enrich_related_followers(
+    api_client: &Arc<ApiClient>,
+    videos: &mut [super::super::api::video::RelatedVideoItem],
+) {
+    use futures_util::StreamExt;
+    let mids: Vec<i64> = videos
+        .iter()
+        .filter_map(|v| v.owner.as_ref().and_then(|o| o.mid))
+        .collect();
+    let followers: HashMap<i64, Option<i64>> = stream::iter(mids)
+        .map(|mid| async move {
+            let follower = api_client
+                .get_relation_stat(mid)
+                .await
+                .ok()
+                .and_then(|stat| stat.follower);
+            (mid, follower)
+        })
+        .buffer_unordered(6)
+        .collect::<HashMap<_, _>>()
+        .await;
+    for video in videos {
+        if let Some(owner) = video.owner.as_mut()
+            && let Some(mid) = owner.mid
+        {
+            owner.follower = followers.get(&mid).copied().flatten();
+        }
+    }
+}
+
+/// Persist a failure that is intentionally swallowed (best-effort data).
+fn log_silent_failure(target: &str, error: anyhow::Error) {
+    if let Some(mut dir) = dirs::config_dir() {
+        dir.push("bilibili-tui");
+        let log_path = dir.join("debug.log");
+        if std::fs::create_dir_all(&dir).is_ok()
+            && let Ok(mut log) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+        {
+            use std::io::Write;
+            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let safe_log_error = redact_url_queries(&format!("{error:#}"));
+            let _ = writeln!(
+                log,
+                "[{timestamp}] Silent failure
+Target: {target}
+Error: {safe_log_error}
+"
+            );
         }
     }
 }

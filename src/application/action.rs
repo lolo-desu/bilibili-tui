@@ -118,6 +118,13 @@ pub enum AppAction {
     PageCommentReplies {
         comment_index: usize,
     },
+    /// Open the APP-style conversation of a floor reply (v / Space).
+    OpenSubThread {
+        comment_index: usize,
+        reply_index: usize,
+    },
+    /// Leave the conversation view (Esc or back row).
+    CloseSubThread,
     /// Follow/unfollow the UP (video detail header button, key f)
     ToggleFollowUp {
         mid: i64,

@@ -159,6 +159,28 @@ impl ApiClient {
         Ok(())
     }
 
+    fn log_api_failure(url: &str, code: i32, message: &str) {
+        if let Some(mut dir) = dirs::config_dir() {
+            dir.push("bilibili-tui");
+            let log_path = dir.join("debug.log");
+            if std::fs::create_dir_all(&dir).is_ok()
+                && let Ok(mut log) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path)
+            {
+                use std::io::Write;
+                let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+                let _ = writeln!(
+                    log,
+                    "[{timestamp}] API code {code}: {message}
+URL: {url}
+"
+                );
+            }
+        }
+    }
+
     /// Make a GET request
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Result<ApiResponse<T>> {
         // A Bilibili CDN connection can occasionally close while the compressed
@@ -204,6 +226,7 @@ impl ApiClient {
                 anyhow!("invalid JSON response from {safe_url}: {error}")
             })?;
             if response.code != 0 {
+                Self::log_api_failure(url, response.code, &response.message);
                 return Err(anyhow!(
                     "API error ({}): {}",
                     response.code,

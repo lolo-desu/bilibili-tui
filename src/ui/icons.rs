@@ -12,16 +12,16 @@
 // ---- Media ----
 /// Monitor / TV (nf-md-television, \uf10fc region)
 pub const TV: &str = "\u{f03eb}"; // nf-md-television_classic
-/// Play (nf-md-play)
-pub const PLAY: &str = "\u{f040b}";
+/// Play (nf-fa-play, common fa range)
+pub const PLAY: &str = "\u{f04b}";
 /// Pause (nf-md-pause)
 pub const PAUSE: &str = "\u{f03e0}";
 /// Broadcast / live (nf-md-broadcast)
 pub const LIVE: &str = "\u{f0e8e}";
 
 // ---- Social ----
-/// Comment bubble (nf-md-comment-text_multiple_outline)
-pub const COMMENT: &str = "\u{f0192}"; // nf-fa-comments, broader support
+/// Comment bubble (nf-fa-comment_o, common fa range)
+pub const COMMENT: &str = "\u{f0e5}";
 /// Thumbs-up outline (nf-md-thumb_up_outline)
 pub const LIKE: &str = "\u{f514}"; // nf-fa-thumbs_up
 /// Thumbs-up filled (nf-fa-thumbs_up filled variant \u{f164})
@@ -42,8 +42,8 @@ pub const USER: &str = "\u{f007}";
 pub const USERS: &str = "\u{f0c0}";
 /// Send (nf-fa-paper_plane)
 pub const SEND: &str = "\u{f1d8}";
-/// Danmaku list (nf-fa-comment_dots) - chat bubbles
-pub const DANMAKU: &str = "\u{f27b}";
+/// Danmaku list (nf-fa-commenting_o, common fa range)
+pub const DANMAKU: &str = "\u{f27a}";
 
 // ---- Objects ----
 /// Search (nf-fa-search)

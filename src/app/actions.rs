@@ -699,6 +699,21 @@ impl App {
                     page.load_more_replies_at(comment_index, &client).await;
                 }
             }
+            AppAction::OpenSubThread {
+                comment_index,
+                reply_index,
+            } => {
+                if let Page::VideoDetail(page) = &mut self.current_page {
+                    let client = self.api_client.clone();
+                    page.open_sub_thread(comment_index, reply_index, &client)
+                        .await;
+                }
+            }
+            AppAction::CloseSubThread => {
+                if let Page::VideoDetail(page) = &mut self.current_page {
+                    page.comment_list.leave_sub_thread();
+                }
+            }
             AppAction::PageCommentReplies { comment_index } => {
                 if let Page::VideoDetail(page) = &mut self.current_page {
                     page.page_comment_replies(comment_index, 1);
