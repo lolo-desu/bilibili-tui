@@ -104,7 +104,16 @@ pub fn crop_cover(img: image::DynamicImage) -> image::DynamicImage {
         let y = (offset as f32 * TOP_BIAS).round() as u32;
         (w, ch, 0, y)
     };
-    img.crop_imm(x, y, cw, ch)
+    img.crop_imm(x, y, cw, ch);
+    // Normalize every cover to the same pixel size so terminal renders
+    // (halfblocks/kitty/...) all occupy a uniform, predictable area.
+    const TARGET_W: u32 = 640;
+    const TARGET_H: u32 = 360;
+    if img.width() != TARGET_W || img.height() != TARGET_H {
+        img.resize_exact(TARGET_W, TARGET_H, image::imageops::FilterType::Triangle)
+    } else {
+        img
+    }
 }
 
 /// Build a panel that separates content with a background color block
@@ -114,15 +123,22 @@ pub fn crop_cover(img: image::DynamicImage) -> image::DynamicImage {
 /// panels draw their "border" in the panel's own background color so it
 /// stays invisible and only the focused panel shows an outline.
 pub fn panel_block<'a>(theme: &Theme, title: Option<Line<'a>>, focused: bool) -> Block<'a> {
+    panel_block_bg(theme, title, focused, theme.bg_card)
+}
+
+/// Same as [`panel_block`] but with an explicit background so sibling panels
+/// can wear different surface tones while keeping the same focus behavior.
+pub fn panel_block_bg<'a>(
+    theme: &Theme,
+    title: Option<Line<'a>>,
+    focused: bool,
+    bg: ratatui::style::Color,
+) -> Block<'a> {
     let mut block = Block::default()
-        .style(Style::default().bg(theme.bg_card))
+        .style(Style::default().bg(bg))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(if focused {
-            theme.border_focused
-        } else {
-            theme.bg_card
-        }));
+        .border_style(Style::default().fg(if focused { theme.border_focused } else { bg }));
     if let Some(title) = title {
         block = block.title(title.style(Style::default().fg(theme.fg_muted)));
     }

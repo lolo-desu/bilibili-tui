@@ -4,7 +4,7 @@ use super::comment_list::CommentList;
 use super::comment_list::{CommentIntent, EntryKind};
 use super::icons;
 use super::video_card::{VideoCard, VideoCardGrid};
-use super::{Component, Theme, panel_block, shortcut_footer};
+use super::{Component, Theme, panel_block, panel_block_bg, shortcut_footer};
 use crate::api::client::ApiClient;
 use crate::api::video::{RelatedVideoItem, VideoInfo};
 use crate::application::AppAction;
@@ -290,13 +290,14 @@ impl VideoDetailPage {
     }
 
     fn render_video_info(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = panel_block(
+        let block = panel_block_bg(
             theme,
             Some(Line::from(Span::styled(
                 format!(" {} 视频信息 ", icons::PLAY),
                 Style::default().fg(theme.bilibili_pink),
             ))),
             false,
+            theme.bg_secondary,
         );
 
         let inner = block.inner(area);
@@ -406,7 +407,7 @@ impl VideoDetailPage {
         let more_hint = if self.comment_list.has_more { "+" } else { "" };
         let sort_icon = self.comment_list.sort_icon();
         let sort_label = self.comment_list.sort_label();
-        let block = panel_block(
+        let block = panel_block_bg(
             theme,
             Some(Line::from(vec![
                 Span::styled(
@@ -428,6 +429,7 @@ impl VideoDetailPage {
                 Span::styled(" (t切换) ", Style::default().fg(theme.fg_muted)),
             ])),
             is_focused,
+            theme.bg_card,
         );
 
         let inner = block.inner(area);
@@ -437,7 +439,7 @@ impl VideoDetailPage {
 
     fn render_related(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let is_focused = self.focus == DetailFocus::Related;
-        let block = panel_block(
+        let block = panel_block_bg(
             theme,
             Some(Line::from(Span::styled(
                 format!(" {} 相关推荐 ", icons::TV),
@@ -448,6 +450,7 @@ impl VideoDetailPage {
                 }),
             ))),
             is_focused,
+            theme.bg_secondary,
         );
 
         let inner = block.inner(area);
@@ -491,7 +494,7 @@ impl VideoDetailPage {
             None => return,
         };
 
-        let block = panel_block(
+        let block = panel_block_bg(
             theme,
             Some(Line::from(Span::styled(
                 format!(" {} 选集 ({}) ", icons::LIST, pages.len()),
@@ -502,6 +505,7 @@ impl VideoDetailPage {
                 }),
             ))),
             is_focused,
+            theme.bg_modal,
         );
 
         let inner = block.inner(area);

@@ -100,7 +100,7 @@ impl HomePage {
             .constraints([
                 Constraint::Length(1),
                 Constraint::Min(10),
-                Constraint::Length(2),
+                Constraint::Length(3), // footer: own color, vertically centered
             ])
             .split(area);
         let header = Paragraph::new(Line::from(vec![
@@ -168,7 +168,12 @@ impl HomePage {
                 Style::default().fg(theme.fg_secondary),
             ));
         }
-        frame.render_widget(Paragraph::new(help).alignment(Alignment::Center), chunks[2]);
+        let footer = Paragraph::new(help).alignment(Alignment::Center).block(
+            Block::default()
+                .style(Style::default().bg(theme.bg_secondary))
+                .padding(ratatui::widgets::Padding::new(0, 0, 1, 0)),
+        );
+        frame.render_widget(footer, chunks[2]);
     }
 }
 
