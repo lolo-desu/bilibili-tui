@@ -381,6 +381,13 @@ impl DynamicPage {
             .block(
                 Block::default()
                     .style(Style::default().bg(theme.bg_secondary))
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(if self.focus_up_list {
+                        theme.border_focused
+                    } else {
+                        theme.bg_secondary
+                    }))
                     .title(Line::from(Span::styled(
                         " 关注的UP主 ",
                         Style::default().fg(theme.fg_muted),

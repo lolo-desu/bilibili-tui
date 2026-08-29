@@ -130,11 +130,25 @@ impl Theme {
     fn from_opaline(theme: &opaline::Theme) -> Self {
         let bg_base = theme.color("bg.base");
 
+        // Distinct surfaces for the three-column layout: sidebar uses the
+        // darker code/mantle tone, panels/cards use the panel/base tone so
+        // columns read as separate blocks instead of one flat color.
+        let bg_secondary = {
+            let code = theme.color("bg.code");
+            let base = theme.color("bg.panel");
+            if code != base {
+                code
+            } else {
+                bg_base.darken(0.35)
+            }
+        };
+        let bg_card = theme.color("bg.panel");
+
         Self {
             bg_primary: Self::to_ratatui(bg_base),
-            bg_secondary: Self::color(theme, "bg.panel"),
+            bg_secondary: Self::to_ratatui(bg_secondary),
             bg_modal: Self::color(theme, "bg.code"),
-            bg_card: Self::color(theme, "bg.panel"),
+            bg_card: Self::to_ratatui(bg_card),
             bg_highlight: Self::color(theme, "bg.highlight"),
             bg_overlay: Self::to_ratatui(bg_base.darken(0.2)),
 

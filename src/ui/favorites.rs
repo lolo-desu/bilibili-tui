@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph},
 };
 use std::time::Instant;
 
@@ -281,6 +281,13 @@ impl Component for FavoritesPage {
                 .block(
                     Block::default()
                         .style(Style::default().bg(theme.bg_secondary))
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(if self.focus_sources {
+                            theme.border_focused
+                        } else {
+                            theme.bg_secondary
+                        }))
                         .title(Line::from(Span::styled(
                             " 收藏 ",
                             Style::default().fg(theme.fg_muted),

@@ -71,6 +71,7 @@ impl Sidebar {
                 Constraint::Length(1), // Separator
                 Constraint::Min(5),    // Nav items
                 Constraint::Length(1), // Footer separator
+                Constraint::Length(1), // Version
             ])
             .split(inner);
 
@@ -135,6 +136,13 @@ impl Sidebar {
         let list = List::new(items).highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
         frame.render_widget(list, chunks[2]);
+
+        // Version tag so it is easy to tell which build is running
+        let version = Paragraph::new(Line::from(Span::styled(
+            format!("  v{}", env!("CARGO_PKG_VERSION")),
+            Style::default().fg(theme.fg_muted),
+        )));
+        frame.render_widget(version, chunks[4]);
     }
 
     pub fn next(&mut self) {

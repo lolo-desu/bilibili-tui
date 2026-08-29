@@ -76,7 +76,14 @@ impl HomePage {
         let list = List::new(items)
             .block(
                 Block::default()
-                    .style(Style::default().bg(theme.bg_secondary))
+                    .style(Style::default().bg(theme.bg_card))
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(if self.focus_sources {
+                        theme.border_focused
+                    } else {
+                        theme.bg_card
+                    }))
                     .title(Line::from(Span::styled(
                         " 首页 ",
                         Style::default().fg(theme.fg_muted),
@@ -171,6 +178,8 @@ impl HomePage {
     const COLUMN_CHOICES: [usize; 4] = [1, 2, 3, 4];
     /// 卡片高度
     const CARD_HEIGHT: u16 = 8;
+    /// Height of vertical grid cards used at 3-4 columns (cover + 3 text rows).
+    const GRID_CARD_HEIGHT: u16 = 12;
     /// 预取缓冲行数（可见区域之外额外下载）
     const PREFETCH_BUFFER_ROWS: usize = 2;
     /// 初始可见行数回退值（首次渲染前使用）
@@ -372,7 +381,17 @@ impl HomePage {
 
     fn visible_rows(&self, height: u16) -> usize {
         let available_height = height.saturating_sub(1);
-        (available_height / self.card_height).max(1) as usize
+        (available_height / self.effective_card_height()).max(1) as usize
+    }
+
+    /// Horizontal list cards (1-2 cols) are short; vertical grid cards
+    /// (3-4 cols) carry a tall cover on top so all covers keep one size.
+    fn effective_card_height(&self) -> u16 {
+        if self.columns <= 2 {
+            self.card_height
+        } else {
+            Self::GRID_CARD_HEIGHT
+        }
     }
 
     fn selected_row(&self) -> usize {
@@ -732,7 +751,7 @@ impl Component for HomePage {
                 if event.row >= content_top && event.row < content_bottom {
                     // Calculate which card was clicked
                     let relative_y = event.row - content_top;
-                    let click_row = (relative_y / self.card_height) as usize;
+                    let click_row = (relative_y / self.effective_card_height()) as usize;
                     let actual_row = self.scroll_row + click_row;
 
                     let card_width = panes[1].width / self.columns as u16;
@@ -790,7 +809,7 @@ impl HomePage {
         self.cached_visible_rows = visible_rows;
 
         let row_constraints: Vec<Constraint> = (0..visible_rows)
-            .map(|_| Constraint::Min(self.card_height))
+            .map(|_| Constraint::Min(self.effective_card_height()))
             .collect();
 
         let rows = Layout::default()
@@ -867,10 +886,20 @@ impl HomePage {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let card_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(28), Constraint::Min(30)])
-            .split(inner);
+        // 3-4 columns: vertical web-style card (full-width cover on top);
+        // 1-2 columns: horizontal list card (cover left, info right)
+        let vertical = self.columns >= 3;
+        let card_chunks = if vertical {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(4), Constraint::Length(4)])
+                .split(inner)
+        } else {
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(28), Constraint::Min(30)])
+                .split(inner)
+        };
 
         // Cover area - render with StatefulImage
         let cover_area = card_chunks[0];
