@@ -300,6 +300,9 @@ pub struct CommentList {
     /// APP-style conversation view: (root_rpid, focus reply rpid) while the
     /// user is reading the full conversation of one floor reply.
     pub sub_thread: Option<(i64, i64)>,
+    /// The focused reply itself, cached so the view works even when the
+    /// floor cache (replies) is empty (dev deep link / fresh entry).
+    pub sub_focus: Option<CommentItem>,
     /// Fetched children per focused reply rpid.
     pub sub_replies: HashMap<i64, Vec<CommentItem>>,
     /// Current floor page (0-based) per expanded root rpid.
@@ -343,6 +346,7 @@ impl CommentList {
             comments: Vec::new(),
             replies: HashMap::new(),
             sub_thread: None,
+            sub_focus: None,
             sub_replies: HashMap::new(),
             reply_pages: HashMap::new(),
             expanded: HashSet::new(),
@@ -395,6 +399,13 @@ impl CommentList {
     /// Enter the conversation view for `focus_rpid` under root `root_rpid`.
     pub fn enter_sub_thread(&mut self, root_rpid: i64, focus_rpid: i64) {
         self.sub_thread = Some((root_rpid, focus_rpid));
+        // Remember the reply being opened so the view renders even before
+        // children arrive (or when the floor cache was never populated).
+        self.sub_focus = self
+            .replies
+            .get(&root_rpid)
+            .and_then(|rs| rs.iter().find(|r| r.rpid == focus_rpid))
+            .cloned();
         self.entries.clear();
         self.selected_entry = 0;
         self.scroll = 0;
@@ -583,11 +594,13 @@ impl CommentList {
                 .iter()
                 .position(|c| c.rpid == root_rpid)
                 .unwrap_or(0);
-            if let Some(focus) = self
-                .replies
-                .get(&root_rpid)
-                .and_then(|rs| rs.iter().find(|r| r.rpid == focus_rpid))
-            {
+            let focus = self.sub_focus.clone().or_else(|| {
+                self.replies
+                    .get(&root_rpid)
+                    .and_then(|rs| rs.iter().find(|r| r.rpid == focus_rpid))
+                    .cloned()
+            });
+            if let Some(focus) = focus {
                 let msg = focus.message_line_count(content_width).max(1);
                 let h = 1 + msg + 1 + CARD_TRAIL_BLANK as usize + 1;
                 entries.push(Entry {
@@ -917,6 +930,22 @@ impl CommentList {
                 }
             }
         }
+        // Conversation view: focus reply + its children are not part of the
+        // floor cache, so request their avatars explicitly.
+        if let Some((_, focus_rpid)) = self.sub_thread {
+            if let Some(focus) = self.sub_focus.as_ref()
+                && let Some(key) = author_key(focus.member.as_ref())
+            {
+                authors.push((key, focus.member.as_ref().and_then(|m| m.avatar.clone())));
+            }
+            if let Some(children) = self.sub_replies.get(&focus_rpid) {
+                for child in children {
+                    if let Some(key) = author_key(child.member.as_ref()) {
+                        authors.push((key, child.member.as_ref().and_then(|m| m.avatar.clone())));
+                    }
+                }
+            }
+        }
         self.avatars.request(authors);
         self.avatars.poll();
 
@@ -978,11 +1007,25 @@ impl CommentList {
                     .comments
                     .get(entry.comment_index)
                     .and_then(|c| c.member.as_ref()),
+                // usize::MAX = the focused reply of a conversation view; its
+                // member lives in sub_focus (the floor cache may be empty).
+                EntryKind::Reply if entry.reply_index == usize::MAX => {
+                    self.sub_focus.as_ref().and_then(|r| r.member.as_ref())
+                }
                 EntryKind::Reply => self
                     .comments
                     .get(entry.comment_index)
                     .and_then(|c| self.visible_replies(c.rpid).get(entry.reply_index))
                     .and_then(|r| r.member.as_ref()),
+                // conversation children render smaller indent rows; give
+                // them the same avatar treatment
+                EntryKind::SubReply => {
+                    let focus = self.sub_thread.map(|(_, r)| r);
+                    focus
+                        .and_then(|f| self.sub_replies.get(&f))
+                        .and_then(|cs| cs.get(entry.reply_index))
+                        .and_then(|r| r.member.as_ref())
+                }
                 _ => None,
             };
             if avatars_supported && let Some(member) = avatar_member {
@@ -1027,10 +1070,7 @@ impl CommentList {
                     let comment = &self.comments[entry.comment_index];
                     // usize::MAX marks the focused reply atop a conversation.
                     if entry.reply_index == usize::MAX {
-                        if let Some(focus_rpid) = self.sub_thread.map(|(_, r)| r)
-                            && let Some(replies) = self.replies.get(&comment.rpid)
-                            && let Some(reply) = replies.iter().find(|r| r.rpid == focus_rpid)
-                        {
+                        if let Some(reply) = self.sub_focus.as_ref() {
                             self.draw_reply_row(
                                 frame,
                                 area,

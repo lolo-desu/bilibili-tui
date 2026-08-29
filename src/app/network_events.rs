@@ -209,6 +209,7 @@ impl App {
                 related_videos,
                 up_follower,
                 following,
+                deep_sub_tree,
             } => {
                 if !self.is_latest_request("video_detail", req_id) {
                     return;
@@ -223,6 +224,11 @@ impl App {
                     let total = comments.len() as i64;
                     page.comment_list.set_comments(comments, total);
                     page.comment_page = 1;
+                    // Dev deep link conversation view: install the subtree.
+                    if let Some((focus_rpid, focus, children)) = deep_sub_tree {
+                        page.comment_list.sub_focus = focus;
+                        page.comment_list.set_sub_replies(focus_rpid, children);
+                    }
                     page.related_videos = related_videos.clone();
                     page.related_card_grid.clear();
                     for video in &related_videos {

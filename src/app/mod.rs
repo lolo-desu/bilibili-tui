@@ -180,7 +180,23 @@ impl App {
                 let mut it = s[6..].split(',');
                 let bvid = it.next().unwrap_or("").to_string();
                 let aid: i64 = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
-                Page::VideoDetail(Box::new(VideoDetailPage::new(bvid, aid)))
+                let page = VideoDetailPage::new(bvid, aid);
+                // video:<bvid>,<aid>,<root_rpid>,<focus_rpid> opens the
+                // conversation view directly (dev/screenshot helper).
+                let page = match (it.next(), it.next()) {
+                    (Some(root), Some(focus)) => {
+                        if let (Ok(root), Ok(focus)) = (root.parse(), focus.parse()) {
+                            let mut page = page;
+                            page.comment_list.sub_thread = Some((root, focus));
+                            page.loading = false;
+                            page
+                        } else {
+                            page
+                        }
+                    }
+                    _ => page,
+                };
+                Page::VideoDetail(Box::new(page))
             }
             Some(s) if s.starts_with("up:") => {
                 let mid: i64 = s[3..].parse().unwrap_or(0);

@@ -87,6 +87,7 @@ pub enum NetworkCommand {
         req_id: u64,
         bvid: String,
         aid: i64,
+        sub_thread: Option<(i64, i64)>,
     },
     LoadCommentsSorted {
         req_id: u64,
@@ -209,6 +210,7 @@ pub enum NetworkEvent {
         related_videos: Vec<RelatedVideoItem>,
         up_follower: Option<i64>,
         following: Option<bool>,
+        deep_sub_tree: Option<(i64, Option<CommentItem>, Vec<CommentItem>)>,
     },
     CommentsSortedLoaded {
         req_id: u64,
@@ -831,7 +833,14 @@ async fn handle_command(api_client: Arc<ApiClient>, command: NetworkCommand) -> 
                 has_more,
             }
         }
-        NetworkCommand::LoadVideoDetail { req_id, bvid, aid } => {
+        NetworkCommand::LoadVideoDetail {
+            req_id,
+            bvid,
+            aid,
+            sub_thread,
+        } => {
+            let page_sub_thread = sub_thread;
+            let mut deep_sub_tree: Option<(i64, Option<CommentItem>, Vec<CommentItem>)> = None;
             let video_info = match api_client.get_video_info(&bvid).await {
                 Ok(info) => info,
                 Err(e) => return failed(req_id, "video_detail", e),
@@ -855,6 +864,19 @@ async fn handle_command(api_client: Arc<ApiClient>, command: NetworkCommand) -> 
                 .await
                 .unwrap_or_default();
             enrich_related_followers(&api_client, &mut related_videos).await;
+            // A deep link can open the conversation view directly; the
+            // reply/reply endpoint returns the whole subtree rooted at the
+            // focus reply (first item = the focus itself).
+            if let Some((_, focus_rpid)) = page_sub_thread
+                && let Ok(data) = api_client.get_comment_replies(aid, focus_rpid, 1).await
+            {
+                let mut subtree = data.replies.unwrap_or_default();
+                let focus = subtree
+                    .iter()
+                    .position(|r| r.rpid == focus_rpid)
+                    .map(|i| subtree.remove(i));
+                deep_sub_tree = Some((focus_rpid, focus, subtree));
+            }
             let up_follower = api_client
                 .get_relation_stat(video_info.owner.mid)
                 .await
@@ -870,6 +892,7 @@ async fn handle_command(api_client: Arc<ApiClient>, command: NetworkCommand) -> 
                 related_videos,
                 up_follower,
                 following,
+                deep_sub_tree,
             }
         }
         NetworkCommand::LoadDynamicDetail { req_id, dynamic_id } => {

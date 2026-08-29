@@ -290,6 +290,7 @@ impl App {
                     req_id,
                     bvid,
                     aid,
+                    sub_thread: None,
                 });
             }
             AppAction::OpenUpPage(mid) => {
@@ -1269,11 +1270,13 @@ impl App {
                 // initialized by the action that creates them.
                 let bvid = page.bvid.clone();
                 let aid = page.aid;
+                let sub_thread = page.comment_list.sub_thread;
                 let req_id = self.next_request_id("video_detail");
                 self.send_network_command(network::NetworkCommand::LoadVideoDetail {
                     req_id,
                     bvid,
                     aid,
+                    sub_thread,
                 });
             }
             Page::DynamicDetail(_) => {
