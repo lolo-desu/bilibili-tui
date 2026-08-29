@@ -95,6 +95,8 @@ pub const SIGNAL: &str = "\u{f012}";
 
 // ---- Fold / expand & tree ----
 /// Expanded node (nf-fa-caret_down)
+pub const LEFT_ARROW: &str = ""; // chevron-left
+pub const RIGHT_ARROW: &str = ""; // chevron-right
 pub const FOLD_OPEN: &str = "\u{f0d7}";
 /// Collapsed node (nf-fa-caret_right)
 pub const FOLD_CLOSED: &str = "\u{f0da}";

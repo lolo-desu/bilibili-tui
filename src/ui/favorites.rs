@@ -282,7 +282,7 @@ impl Component for FavoritesPage {
                     Block::default()
                         .style(Style::default().bg(theme.bg_secondary))
                         .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
+                        .border_type(BorderType::Plain)
                         .border_style(Style::default().fg(if self.focus_sources {
                             theme.border_focused
                         } else {

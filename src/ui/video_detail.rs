@@ -38,6 +38,8 @@ pub struct VideoDetailPage {
     pub related_scroll: usize,
     pub focus: DetailFocus,
     pub loading_more_comments: bool,
+    /// Floor-page turn that needs a server fetch first (comment_index, dir).
+    pub pending_reply_page: Option<(usize, i32)>,
     pub liked_comments: HashSet<i64>,
     pub input_mode: bool,
     pub input_buffer: String,
@@ -71,6 +73,7 @@ impl VideoDetailPage {
             related_scroll: 0,
             focus: DetailFocus::Comments,
             loading_more_comments: false,
+            pending_reply_page: None,
             liked_comments: HashSet::new(),
             input_mode: false,
             input_buffer: String::new(),
@@ -248,6 +251,32 @@ impl VideoDetailPage {
         }
     }
 
+    /// Turn the floor page of replies for comment `comment_index`.
+    /// Paging past fetched replies schedules a server fetch first.
+    pub fn page_comment_replies(&mut self, comment_index: usize, dir: i32) {
+        let Some(comment) = self.comment_list.comments.get(comment_index) else {
+            return;
+        };
+        let root_rpid = comment.rpid;
+        let total_fetched = self
+            .comment_list
+            .replies
+            .get(&root_rpid)
+            .map_or(0, |r| r.len());
+        let pages_fetched = total_fetched
+            .div_ceil(crate::ui::comment_list::REPLIES_PER_PAGE)
+            .max(1);
+        let Some((page, _pages)) = self.comment_list.reply_page_info(root_rpid) else {
+            return;
+        };
+        if dir > 0 && page + 1 > pages_fetched {
+            // need to fetch the next server page first; keep as pending
+            self.pending_reply_page = Some((comment_index, dir));
+        } else {
+            self.comment_list.page_replies(root_rpid, dir);
+        }
+    }
+
     pub async fn load_more_replies_at(&mut self, comment_index: usize, api_client: &ApiClient) {
         let Some(comment) = self.comment_list.comments.get(comment_index) else {
             return;
@@ -272,8 +301,15 @@ impl VideoDetailPage {
                     .unwrap_or_default();
                 existing.extend(data.replies.unwrap_or_default());
                 self.comment_list.set_replies(root_rpid, existing);
+                // resume a floor-page turn that was waiting for this fetch
+                if let Some((pending_idx, dir)) = self.pending_reply_page.take()
+                    && pending_idx == comment_index
+                {
+                    self.comment_list.page_replies(root_rpid, dir);
+                }
             }
             Err(_) => {
+                self.pending_reply_page = None;
                 self.comment_list.reply_failed(root_rpid);
             }
         }
@@ -450,7 +486,7 @@ impl VideoDetailPage {
                 }),
             ))),
             is_focused,
-            theme.bg_secondary,
+            theme.bg_card,
         );
 
         let inner = block.inner(area);
@@ -1093,6 +1129,9 @@ fn comment_intent_to_action(intent: CommentIntent, aid: i64) -> Option<AppAction
         }
         CommentIntent::LoadMoreReplies { comment_index } => {
             Some(AppAction::LoadMoreReplies { comment_index })
+        }
+        CommentIntent::PageReplies { comment_index } => {
+            Some(AppAction::PageCommentReplies { comment_index })
         }
         CommentIntent::Like {
             comment_index,

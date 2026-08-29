@@ -585,12 +585,12 @@ impl LivePage {
                 Style::default()
                     .fg(theme.border_focused)
                     .add_modifier(Modifier::BOLD),
-                BorderType::Rounded,
+                BorderType::Plain,
             )
         } else {
             (
                 Style::default().fg(theme.border_unfocused),
-                BorderType::Rounded,
+                BorderType::Plain,
             )
         };
 
@@ -598,7 +598,7 @@ impl LivePage {
         let block = Block::default()
             .style(Style::default().bg(theme.bg_card))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Plain)
             .border_style(Style::default().fg(if is_selected {
                 theme.border_focused
             } else {

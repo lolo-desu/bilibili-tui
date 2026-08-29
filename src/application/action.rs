@@ -114,6 +114,10 @@ pub enum AppAction {
     LoadMoreReplies {
         comment_index: usize,
     },
+    /// Turn the floor page (app-style) of the expanded comment's replies
+    PageCommentReplies {
+        comment_index: usize,
+    },
     /// Like/unlike comment or reply selected in the web-style comment list
     LikeCommentAt {
         oid: i64,

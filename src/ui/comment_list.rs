@@ -29,9 +29,9 @@ use unicode_width::UnicodeWidthStr;
 pub enum EntryKind {
     /// Top-level comment card.
     Comment,
-    /// Reply row inside an expanded comment.
+    /// Reply row inside an expanded comment (floor view).
     Reply,
-    /// "展开/收起回复" or "加载更多回复" toggle row.
+    /// "展开/收起回复" or page/load-more toggle row.
     Toggle,
     /// Horizontal rule between top-level cards (not selectable).
     Separator,
@@ -64,6 +64,8 @@ pub enum CommentIntent {
     ToggleReplies { comment_index: usize },
     /// Fetch the next page of replies for the expanded comment.
     LoadMoreReplies { comment_index: usize },
+    /// Turn the floor page of the expanded comment's replies.
+    PageReplies { comment_index: usize },
     /// Like/unlike the selected comment or reply.
     Like {
         comment_index: usize,
@@ -278,11 +280,16 @@ const GAP_COLS: u16 = 1; // gap between avatar and text column
 const CARD_TRAIL_BLANK: u16 = 2; // blank rows after each card (web-like breathing room)
 
 /// Web-style comment list widget + state.
+/// Replies shown per floor page when a comment is expanded.
+pub const REPLIES_PER_PAGE: usize = 10;
+
 pub struct CommentList {
     /// Top-level comments (hot + recent, in API order).
     pub comments: Vec<CommentItem>,
     /// Fetched replies keyed by root comment rpid.
     pub replies: HashMap<i64, Vec<CommentItem>>,
+    /// Current floor page (0-based) per expanded root rpid.
+    pub reply_pages: HashMap<i64, usize>,
     /// Root rpids currently expanded.
     pub expanded: HashSet<i64>,
     /// Root rpid whose replies are being fetched.
@@ -321,6 +328,7 @@ impl CommentList {
         Self {
             comments: Vec::new(),
             replies: HashMap::new(),
+            reply_pages: HashMap::new(),
             expanded: HashSet::new(),
             loading_replies_for: None,
             loading_more_replies: false,
@@ -344,6 +352,7 @@ impl CommentList {
     pub fn set_comments(&mut self, comments: Vec<CommentItem>, total_count: i64) {
         self.comments = comments;
         self.replies.clear();
+        self.reply_pages.clear();
         self.expanded.clear();
         self.loading_replies_for = None;
         self.selected = self.selected.min(self.comments.len().saturating_sub(1));
@@ -365,6 +374,54 @@ impl CommentList {
         self.loading_replies_for = None;
         self.loading_more_replies = false;
         self.entries.clear();
+    }
+
+    /// Visible slice (floor page) of replies for an expanded root comment.
+    pub fn visible_replies(&self, root_rpid: i64) -> &[CommentItem] {
+        let all = self
+            .replies
+            .get(&root_rpid)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if !self.expanded.contains(&root_rpid) {
+            return &[];
+        }
+        let page = *self.reply_pages.get(&root_rpid).unwrap_or(&0);
+        let start = (page * REPLIES_PER_PAGE).min(all.len());
+        let end = (start + REPLIES_PER_PAGE).min(all.len());
+        &all[start..end]
+    }
+
+    /// Current floor page number (1-based) for an expanded root, if any.
+    pub fn reply_page_info(&self, root_rpid: i64) -> Option<(usize, usize)> {
+        if !self.expanded.contains(&root_rpid) {
+            return None;
+        }
+        let total = self.replies.get(&root_rpid)?.len();
+        if total == 0 {
+            return None;
+        }
+        let page = *self.reply_pages.get(&root_rpid).unwrap_or(&0);
+        let pages = total.div_ceil(REPLIES_PER_PAGE);
+        Some((page + 1, pages))
+    }
+
+    /// Turn to the next/previous floor page; returns true when moved.
+    pub fn page_replies(&mut self, root_rpid: i64, dir: i32) -> bool {
+        let Some((page, pages)) = self.reply_page_info(root_rpid) else {
+            return false;
+        };
+        let next = if dir > 0 {
+            (page).min(pages - 1)
+        } else {
+            page.saturating_sub(2)
+        };
+        if next + 1 == page {
+            return false;
+        }
+        self.reply_pages.insert(root_rpid, next);
+        self.entries.clear();
+        true
     }
 
     /// Collapse (or mark loading) replies for a root comment.
@@ -489,30 +546,32 @@ impl CommentList {
 
             let is_expanded = self.expanded.contains(&comment.rpid);
             if is_expanded {
-                if let Some(replies) = self.replies.get(&comment.rpid) {
-                    for (ri, reply) in replies.iter().enumerate() {
+                if self.replies.contains_key(&comment.rpid) {
+                    let floor_replies = self.visible_replies(comment.rpid);
+                    let page_base = self.reply_pages.get(&comment.rpid).copied().unwrap_or(0)
+                        * REPLIES_PER_PAGE;
+                    for (ri, reply) in floor_replies.iter().enumerate() {
                         let reply_msg_lines = reply.message_line_count(content_width).max(1);
                         let height = 1 + reply_msg_lines + 1 + 1; // header+msg+actions+blank
                         entries.push(Entry {
                             kind: EntryKind::Reply,
                             comment_index: ci,
-                            reply_index: ri,
+                            reply_index: page_base + ri,
                             start_line: line,
                             height: height as u16,
                         });
                         line += height;
                     }
-                    // "load more replies" toggle when more exist on server
-                    if comment.reply_count() as usize > replies.len() {
-                        entries.push(Entry {
-                            kind: EntryKind::Toggle,
-                            comment_index: ci,
-                            reply_index: 1,
-                            start_line: line,
-                            height: 2,
-                        });
-                        line += 2;
-                    }
+                    // floor pager: 上一页 / 第x/y页 / 下一页 (+加载更多 when server has more)
+                    let pager_height = 2;
+                    entries.push(Entry {
+                        kind: EntryKind::Toggle,
+                        comment_index: ci,
+                        reply_index: 2, // pager row
+                        start_line: line,
+                        height: pager_height as u16,
+                    });
+                    line += pager_height;
                 } else if self.loading_replies_for == Some(comment.rpid) {
                     entries.push(Entry {
                         kind: EntryKind::Toggle,
@@ -639,14 +698,18 @@ impl CommentList {
             }),
             EntryKind::Toggle => {
                 let comment = self.comments.get(entry.comment_index)?;
-                if self.expanded.contains(&comment.rpid) && entry.reply_index == 0 {
-                    Some(CommentIntent::ToggleReplies {
-                        comment_index: entry.comment_index,
-                    })
-                } else if entry.reply_index == 1 {
-                    Some(CommentIntent::LoadMoreReplies {
-                        comment_index: entry.comment_index,
-                    })
+                if self.expanded.contains(&comment.rpid) {
+                    if entry.reply_index == 2 {
+                        // pager row cycles to the next floor page (wraps)
+                        Some(CommentIntent::PageReplies {
+                            comment_index: entry.comment_index,
+                        })
+                    } else {
+                        // reply_index 0 = collapse row
+                        Some(CommentIntent::ToggleReplies {
+                            comment_index: entry.comment_index,
+                        })
+                    }
                 } else {
                     Some(CommentIntent::ToggleReplies {
                         comment_index: entry.comment_index,
@@ -705,9 +768,18 @@ impl CommentList {
         let viewport = area.height as usize;
         self.clamp_scroll(viewport);
 
-        // avatar prefetch for visible comments
+        // avatar prefetch for visible comments and their floor replies
         let visible_comments = self.visible_comment_indices(viewport);
-        let authors = self.visible_authors(&visible_comments);
+        let mut authors = self.visible_authors(&visible_comments);
+        for ci in &visible_comments {
+            if let Some(c) = self.comments.get(*ci) {
+                for reply in self.visible_replies(c.rpid) {
+                    if let Some(key) = author_key(reply.member.as_ref()) {
+                        authors.push((key, reply.member.as_ref().and_then(|m| m.avatar.clone())));
+                    }
+                }
+            }
+        }
         self.avatars.request(authors);
         self.avatars.poll();
 
@@ -737,7 +809,7 @@ impl CommentList {
                 frame.render_widget(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
+                        .border_type(BorderType::Plain)
                         .border_style(Style::default().fg(theme.border_focused)),
                     rect,
                 );
@@ -767,18 +839,28 @@ impl CommentList {
             // outline is drawn separately; rows keep the panel background
             let sel_style = Style::default();
 
-            // Avatar first (needs &mut self for protocol render state)
-            if entry.kind == EntryKind::Comment && avatars_supported {
+            // Avatar first (needs &mut self for protocol render state).
+            // Replies get one too (floor view = same layout as top comments).
+            let avatar_member = match entry.kind {
+                EntryKind::Comment => self
+                    .comments
+                    .get(entry.comment_index)
+                    .and_then(|c| c.member.as_ref()),
+                EntryKind::Reply => self
+                    .comments
+                    .get(entry.comment_index)
+                    .and_then(|c| self.visible_replies(c.rpid).get(entry.reply_index))
+                    .and_then(|r| r.member.as_ref()),
+                _ => None,
+            };
+            if avatars_supported && let Some(member) = avatar_member {
                 let avatar_rect = Rect {
                     x: area.x,
                     y: row,
                     width: AVATAR_COLS,
                     height: AVATAR_ROWS.min(area.bottom().saturating_sub(row)),
                 };
-                let protocol = self
-                    .comments
-                    .get(entry.comment_index)
-                    .and_then(|c| author_key(c.member.as_ref()))
+                let protocol = author_key(Some(member))
                     .and_then(|key| self.avatars.get_mut(&key).map(|p| p as *mut _));
                 // SAFETY: protocol points into self.avatars, which we borrow
                 // mutably only here; no other aliasing borrow is live.
@@ -1017,9 +1099,9 @@ impl CommentList {
         is_selected: bool,
         sel_style: Style,
     ) {
-        // Replies indent under the parent's text column (web style)
-        let text_x = area.x + AVATAR_COLS + GAP_COLS + 2;
-        let text_width = area.width.saturating_sub(AVATAR_COLS + GAP_COLS + 2);
+        // Floor view: replies align exactly like top-level comments
+        let text_x = area.x + AVATAR_COLS + GAP_COLS;
+        let text_width = area.width.saturating_sub(AVATAR_COLS + GAP_COLS);
         let content_width = text_width.saturating_sub(1) as usize;
 
         // Header: name LV (time moves to action row like web)
@@ -1177,13 +1259,73 @@ impl CommentList {
         let x = area.x + indent;
         let width = area.width.saturating_sub(indent);
 
-        let (label, icon, color) = if entry.reply_index == 1 {
-            (
-                "加载更多回复".to_string(),
-                icons::DOWNLOAD,
-                theme.bilibili_blue,
-            )
-        } else if self.expanded.contains(&comment.rpid) {
+        // Floor pager row (reply_index == 2): 上一页 | 第x/y页 | 下一页 (+加载更多)
+        if entry.reply_index == 2 {
+            let total_fetched = self.replies.get(&comment.rpid).map_or(0, |r| r.len());
+            let has_more_server = comment.reply_count() as usize > total_fetched;
+            let mut spans = Vec::new();
+            match self.reply_page_info(comment.rpid) {
+                Some((page, pages)) if pages > 1 => {
+                    spans.push(Span::styled(
+                        format!("{} 上一页 ", icons::LEFT_ARROW),
+                        Style::default().fg(if page > 1 {
+                            theme.bilibili_blue
+                        } else {
+                            theme.fg_muted
+                        }),
+                    ));
+                    spans.push(Span::styled(
+                        format!(" {}/{} ", page, pages),
+                        Style::default().fg(theme.fg_muted),
+                    ));
+                    spans.push(Span::styled(
+                        format!("下一页 {}", icons::RIGHT_ARROW),
+                        Style::default().fg(if page < pages {
+                            theme.bilibili_blue
+                        } else {
+                            theme.fg_muted
+                        }),
+                    ));
+                }
+                _ => {
+                    // single page: show load-more from server instead
+                    spans.push(Span::styled(
+                        format!(
+                            "{} 加载更多回复 ",
+                            if self.loading_more_replies {
+                                icons::SPINNER
+                            } else {
+                                icons::DOWNLOAD
+                            }
+                        ),
+                        Style::default().fg(theme.bilibili_blue),
+                    ));
+                }
+            }
+            if has_more_server {
+                spans.push(Span::styled(
+                    format!("  {} 服务器还有更多", icons::DOWNLOAD),
+                    Style::default().fg(theme.fg_muted),
+                ));
+            }
+            let line = Line::from(spans).style(if is_selected {
+                sel_style
+            } else {
+                Style::default()
+            });
+            frame.render_widget(
+                Paragraph::new(line),
+                Rect {
+                    x,
+                    y: row,
+                    width,
+                    height: 1,
+                },
+            );
+            return;
+        }
+
+        let (label, icon, color) = if self.expanded.contains(&comment.rpid) {
             ("收起回复".to_string(), icons::FOLD_OPEN, theme.fg_muted)
         } else if self.loading_replies_for == Some(comment.rpid) {
             ("加载回复中...".to_string(), icons::SPINNER, theme.warning)

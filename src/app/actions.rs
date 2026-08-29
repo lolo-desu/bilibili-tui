@@ -699,6 +699,11 @@ impl App {
                     page.load_more_replies_at(comment_index, &client).await;
                 }
             }
+            AppAction::PageCommentReplies { comment_index } => {
+                if let Page::VideoDetail(page) = &mut self.current_page {
+                    page.page_comment_replies(comment_index, 1);
+                }
+            }
             AppAction::LikeCommentAt {
                 oid,
                 comment_index,

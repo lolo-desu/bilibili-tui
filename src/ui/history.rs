@@ -786,7 +786,7 @@ impl HistoryPage {
         let mut block = Block::default()
             .style(Style::default().bg(theme.bg_card))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Plain)
             .border_style(Style::default().fg(if is_selected {
                 theme.border_focused
             } else {

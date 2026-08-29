@@ -137,7 +137,7 @@ pub fn panel_block_bg<'a>(
     let mut block = Block::default()
         .style(Style::default().bg(bg))
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(Style::default().fg(if focused { theme.border_focused } else { bg }));
     if let Some(title) = title {
         block = block.title(title.style(Style::default().fg(theme.fg_muted)));

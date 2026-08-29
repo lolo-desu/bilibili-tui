@@ -58,92 +58,114 @@ pub struct HomePage {
 
 impl HomePage {
     fn draw_sources(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let items = (0..self.source_count())
-            .map(|index| {
-                ListItem::new(self.source_label(index)).style(if index == self.selected_source {
-                    Style::default()
-                        .fg(if self.focus_sources {
-                            theme.bilibili_pink
-                        } else {
-                            theme.bilibili_cyan
-                        })
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme.fg_secondary)
-                })
-            })
-            .collect::<Vec<_>>();
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .style(Style::default().bg(theme.bg_card))
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(if self.focus_sources {
-                        theme.border_focused
-                    } else {
-                        theme.bg_card
-                    }))
-                    .title(Line::from(Span::styled(
-                        " 首页 ",
-                        Style::default().fg(theme.fg_muted),
-                    ))),
-            )
-            .highlight_symbol("");
-        let mut state = ListState::default().with_selected(Some(self.selected_source));
-        frame.render_stateful_widget(list, area, &mut state);
+        // Vertical tab strip: selected tab is a full-width pill on the
+        // content surface with a left accent bar (web tab style).
+        let block = Block::default()
+            .style(Style::default().bg(theme.bg_secondary))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Plain)
+            .border_style(Style::default().fg(if self.focus_sources {
+                theme.border_focused
+            } else {
+                theme.bg_secondary
+            }))
+            .title(Line::from(Span::styled(
+                " 首页 ",
+                Style::default().fg(theme.fg_muted),
+            )));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        for (index, row) in inner.rows().enumerate() {
+            if index >= self.source_count() {
+                break;
+            }
+            let is_selected = index == self.selected_source;
+            let area_row = Rect {
+                x: inner.x,
+                y: row.y,
+                width: inner.width,
+                height: 1,
+            };
+            let label = self.source_label(index);
+            if is_selected {
+                let selected = Line::from(vec![
+                    Span::styled(
+                        "▌",
+                        Style::default()
+                            .fg(theme.bilibili_pink)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        label,
+                        Style::default()
+                            .fg(theme.fg_primary)
+                            .add_modifier(Modifier::BOLD)
+                            .bg(theme.bg_card),
+                    ),
+                ]);
+                // paint the tab pill full width, then the text over it
+                frame.render_widget(
+                    Block::default().style(Style::default().bg(theme.bg_card)),
+                    area_row,
+                );
+                frame.render_widget(Paragraph::new(selected), area_row);
+            } else {
+                let normal = Paragraph::new(Line::from(Span::styled(
+                    format!("  {label}"),
+                    Style::default().fg(theme.fg_secondary),
+                )));
+                frame.render_widget(normal, area_row);
+            }
+        }
     }
 
-    fn draw_feed(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings) {
+    fn draw_feed(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, _keys: &Keybindings) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Min(10),
-                Constraint::Length(3), // footer: own color, vertically centered
-            ])
+            .constraints([Constraint::Min(10)])
             .split(area);
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled(" 首页  ", Style::default().fg(theme.fg_accent)),
-            Span::styled(
-                self.feed.label(),
-                Style::default()
-                    .fg(theme.bilibili_pink)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            if self.loading_more {
-                Span::styled("  加载中…", Style::default().fg(theme.warning))
-            } else {
-                Span::raw("")
-            },
-        ]));
-        frame.render_widget(header, chunks[0]);
+        if self.loading_more {
+            let hint = Paragraph::new(Span::styled(" 加载中…", Style::default().fg(theme.warning)));
+            frame.render_widget(hint, chunks[0]);
+        }
 
         if self.loading {
             frame.render_widget(
                 Paragraph::new("⏳ 加载中…")
                     .style(Style::default().fg(theme.warning))
                     .alignment(Alignment::Center),
-                chunks[1],
+                chunks[0],
             );
         } else if let Some(error) = &self.error_message {
             frame.render_widget(
                 Paragraph::new(format!("{} {error}", icons::ERROR))
                     .style(Style::default().fg(theme.error))
                     .alignment(Alignment::Center),
-                chunks[1],
+                chunks[0],
             );
         } else if self.videos.is_empty() {
             frame.render_widget(
                 Paragraph::new(format!("{} 暂无推荐视频", icons::INBOX))
                     .style(Style::default().fg(theme.fg_secondary))
                     .alignment(Alignment::Center),
-                chunks[1],
+                chunks[0],
             );
         } else {
-            self.render_grid(frame, chunks[1], theme);
+            self.render_grid(frame, chunks[0], theme);
         }
+    }
+}
 
+impl HomePage {
+    /// Render the full-width, vertically centered footer with its own surface.
+    fn draw_global_footer(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        theme: &Theme,
+        keys: &crate::storage::Keybindings,
+    ) {
         let notice = self.footer_notice.take();
         let mut help = shortcut_footer(
             theme,
@@ -173,7 +195,7 @@ impl HomePage {
                 .style(Style::default().bg(theme.bg_secondary))
                 .padding(ratatui::widgets::Padding::new(0, 0, 1, 0)),
         );
-        frame.render_widget(footer, chunks[2]);
+        frame.render_widget(footer, area);
     }
 }
 
@@ -530,10 +552,15 @@ impl HomePage {
 
 impl Component for HomePage {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings) {
+        // Global footer row across the whole page width; panes live above it.
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(10), Constraint::Length(3)])
+            .split(area);
         let panes = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(28), Constraint::Min(30)])
-            .split(area);
+            .split(rows[0]);
         self.draw_sources(frame, panes[0], theme);
 
         if self.selected_source == 0 {
@@ -541,6 +568,7 @@ impl Component for HomePage {
         } else {
             self.draw_feed(frame, panes[1], theme, keys);
         }
+        self.draw_global_footer(frame, rows[1], theme, keys);
     }
 
     fn handle_input(
@@ -593,11 +621,27 @@ impl Component for HomePage {
         }
 
         if keys.matches_left(key) {
+            // Multi-column grids move the cursor one column first; only the
+            // leftmost column hands focus back to the source list.
+            let col = self.selected_index % self.columns;
+            if col > 0 {
+                self.selected_index -= 1;
+                return Some(AppAction::None);
+            }
             self.focus_sources = true;
             if self.selected_source == 0 || self.loading || self.loading_more {
                 self.loading = false;
                 self.loading_more = false;
                 return Some(AppAction::CancelPendingLoads);
+            }
+            return Some(AppAction::None);
+        }
+        if keys.matches_right(key) {
+            // moving right inside the grid; at the last column do nothing
+            let col = self.selected_index % self.columns;
+            let new_idx = self.selected_index + 1;
+            if col + 1 < self.columns && new_idx < self.videos.len() {
+                self.selected_index = new_idx;
             }
             return Some(AppAction::None);
         }
@@ -877,10 +921,15 @@ impl HomePage {
             Span::raw("")
         };
 
+        let card_bg = if is_selected {
+            theme.bg_highlight
+        } else {
+            theme.bg_card
+        };
         let block = Block::default()
-            .style(Style::default().bg(theme.bg_card))
+            .style(Style::default().bg(card_bg))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Plain)
             .border_style(Style::default().fg(if is_selected {
                 theme.border_focused
             } else {

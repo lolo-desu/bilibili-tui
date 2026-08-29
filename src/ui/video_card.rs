@@ -59,9 +59,14 @@ impl VideoCard {
 
     /// Render a single video card
     pub fn render(&mut self, frame: &mut Frame, area: Rect, is_selected: bool, theme: &Theme) {
-        // selection reads as a thin outline + pink marker; blocks stay calm
+        // selection = outline + subtle background lift, both at once
         let border_color = if is_selected {
             theme.border_focused
+        } else {
+            theme.bg_card
+        };
+        let card_bg = if is_selected {
+            theme.bg_highlight
         } else {
             theme.bg_card
         };
@@ -79,9 +84,9 @@ impl VideoCard {
         };
 
         let block = Block::default()
-            .style(Style::default().bg(theme.bg_card))
+            .style(Style::default().bg(card_bg))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Plain)
             .border_style(Style::default().fg(border_color))
             .title(title_span);
 
@@ -161,10 +166,15 @@ impl VideoCard {
     }
 
     fn render_list(&mut self, frame: &mut Frame, area: Rect, is_selected: bool, theme: &Theme) {
+        let card_bg = if is_selected {
+            theme.bg_highlight
+        } else {
+            theme.bg_card
+        };
         let block = Block::default()
-            .style(Style::default().bg(theme.bg_card))
+            .style(Style::default().bg(card_bg))
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Plain)
             .border_style(Style::default().fg(if is_selected {
                 theme.border_focused
             } else {
