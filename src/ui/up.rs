@@ -199,7 +199,7 @@ impl UpPage {
         let picker = shared_picker();
         let tx = self.avatar_tx.clone();
         tokio::spawn(async move {
-            if let Some(img) = super::comment_list::download_image(&url).await {
+            if let Some(img) = super::download_cover(&url).await {
                 let protocol = picker.new_resize_protocol(img);
                 let _ = tx.send(protocol).await;
             }

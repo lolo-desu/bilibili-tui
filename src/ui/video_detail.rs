@@ -582,7 +582,7 @@ impl Component for VideoDetailPage {
                 .constraints([
                     Constraint::Length(6), // Video info
                     Constraint::Min(10),   // Comments + Related
-                    Constraint::Length(2), // Help
+                    Constraint::Length(3), // Help (vertically centered)
                 ])
                 .split(area)
         };
@@ -681,7 +681,9 @@ impl Component for VideoDetailPage {
                 ],
             )
         };
-        let help = Paragraph::new(help).alignment(Alignment::Center);
+        let help = Paragraph::new(help)
+            .alignment(Alignment::Center)
+            .block(Block::default().padding(ratatui::widgets::Padding::new(0, 0, 1, 0)));
         frame.render_widget(help, help_chunk);
     }
 

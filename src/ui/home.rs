@@ -7,7 +7,6 @@ use crate::api::recommend::HomeFeed;
 use crate::api::recommend::VideoItem;
 use crate::application::AppAction;
 use crate::storage::Keybindings;
-use image::DynamicImage;
 use ratatui::{
     crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind},
     prelude::*,
@@ -343,7 +342,7 @@ impl HomePage {
 
                     // Spawn background task
                     tokio::spawn(async move {
-                        if let Some(img) = Self::download_image(&pic_url).await {
+                        if let Some(img) = super::download_cover(&pic_url).await {
                             let protocol = picker.new_resize_protocol(img);
                             let _ = tx
                                 .send(CoverResult {
@@ -369,12 +368,6 @@ impl HomePage {
             }
         }
         self.search.poll_cover_results();
-    }
-
-    async fn download_image(url: &str) -> Option<DynamicImage> {
-        let response = reqwest::get(url).await.ok()?;
-        let bytes = response.bytes().await.ok()?;
-        image::load_from_memory(&bytes).ok()
     }
 
     fn visible_rows(&self, height: u16) -> usize {
@@ -860,13 +853,15 @@ impl HomePage {
             Span::raw("")
         };
 
-        let bg = if is_selected {
-            theme.bg_highlight
-        } else {
-            theme.bg_card
-        };
         let block = Block::default()
-            .style(Style::default().bg(bg))
+            .style(Style::default().bg(theme.bg_card))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(if is_selected {
+                theme.border_focused
+            } else {
+                theme.bg_card
+            }))
             .title(title_span);
 
         let inner = block.inner(area);

@@ -274,7 +274,6 @@ impl BangumiDetailPage {
             let style = if is_selected {
                 Style::default()
                     .fg(theme.bilibili_pink)
-                    .bg(theme.bg_highlight)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme.fg_primary)

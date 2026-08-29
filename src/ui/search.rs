@@ -273,8 +273,11 @@ impl Component for SearchPage {
         };
 
         let input_block = Block::default()
-            .style(Style::default().bg(if self.input_mode {
-                theme.bg_highlight
+            .style(Style::default().bg(theme.bg_secondary))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(if self.input_mode {
+                theme.border_focused
             } else {
                 theme.bg_secondary
             }))

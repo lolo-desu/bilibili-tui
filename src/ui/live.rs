@@ -6,7 +6,6 @@ use crate::api::client::ApiClient;
 use crate::api::live::LiveRoom;
 use crate::application::AppAction;
 use crate::storage::Keybindings;
-use image::DynamicImage;
 use ratatui::{
     crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind},
     prelude::*,
@@ -235,7 +234,7 @@ impl LivePage {
             let picker = Arc::clone(&self.picker);
 
             tokio::spawn(async move {
-                let protocol = Self::download_image(&cover_url)
+                let protocol = super::download_cover(&cover_url)
                     .await
                     .map(|img| picker.new_resize_protocol(img));
                 let _ = tx.send(CoverResult { room_id, protocol }).await;
@@ -257,12 +256,6 @@ impl LivePage {
                 card.cover_image = Some(protocol);
             }
         }
-    }
-
-    async fn download_image(url: &str) -> Option<DynamicImage> {
-        let response = reqwest::get(url).await.ok()?;
-        let bytes = response.bytes().await.ok()?;
-        image::load_from_memory(&bytes).ok()
     }
 
     fn visible_rows(&self, height: u16) -> usize {
@@ -602,11 +595,15 @@ impl LivePage {
         };
 
         let _ = (border_style, border_type);
-        let block = Block::default().style(Style::default().bg(if is_selected {
-            theme.bg_highlight
-        } else {
-            theme.bg_card
-        }));
+        let block = Block::default()
+            .style(Style::default().bg(theme.bg_card))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(if is_selected {
+                theme.border_focused
+            } else {
+                theme.bg_card
+            }));
 
         let inner = block.inner(area);
         frame.render_widget(block, area);

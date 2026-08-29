@@ -45,7 +45,7 @@ use ratatui::{
     Frame,
     crossterm::event::{KeyCode, KeyModifiers, MouseEvent},
     prelude::{Color, Line, Modifier, Rect, Span, Style},
-    widgets::Block,
+    widgets::{Block, BorderType, Borders},
 };
 
 /// Build the centered, bracketed shortcut footer used across list pages.
@@ -55,34 +55,74 @@ pub fn shortcut_footer(
     theme: &Theme,
     items: impl IntoIterator<Item = (String, String, Color)>,
 ) -> Line<'static> {
-    let muted = Style::default().fg(theme.fg_secondary);
+    let dim = Style::default().fg(theme.border_subtle);
+    let key = Style::default().fg(theme.fg_muted);
     let mut spans = Vec::new();
     for (index, (shortcut, label, color)) in items.into_iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled("  ", muted));
+            spans.push(Span::styled("   ", dim));
+            spans.push(Span::styled("│ ", dim));
         }
-        spans.push(Span::styled("[", muted));
+        spans.push(Span::styled("[", dim));
         spans.push(Span::styled(
             shortcut,
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         ));
-        spans.push(Span::styled("] ", muted));
-        spans.push(Span::styled(label, muted));
+        spans.push(Span::styled("] ", dim));
+        spans.push(Span::styled(label, key));
     }
     Line::from(spans)
 }
 
-/// Build a border-less panel that separates content with a background color
-/// block (opencode style) instead of strong border lines. A faint title row
-/// sits at the top inside the panel; `focused` lifts the background to the
-/// highlight tone so focus reads as a color change, not a line.
-pub fn panel_block<'a>(theme: &Theme, title: Option<Line<'a>>, focused: bool) -> Block<'a> {
-    let bg = if focused {
-        theme.bg_highlight
+/// Download an image and center-crop it to a uniform 16:9 cover so every
+/// card in a grid shows the same aspect ratio (hard crop, no distortion).
+pub async fn download_cover(url: &str) -> Option<image::DynamicImage> {
+    let response = reqwest::get(url).await.ok()?;
+    let bytes = response.bytes().await.ok()?;
+    let img = image::load_from_memory(&bytes).ok()?;
+    Some(crop_cover(img))
+}
+
+/// Center-crop an image to the widest 16:9 rectangle that fits inside it.
+/// For taller images this crops away top/bottom (favoring the upper part,
+/// where covers usually put their subject); for wider ones, the sides.
+pub fn crop_cover(img: image::DynamicImage) -> image::DynamicImage {
+    use image::GenericImageView;
+    const TARGET: f32 = 16.0 / 9.0;
+    const TOP_BIAS: f32 = 0.35; // keep the crop window toward the top
+    let (w, h) = img.dimensions();
+    if w == 0 || h == 0 {
+        return img;
+    }
+    let ratio = w as f32 / h as f32;
+    let (cw, ch, x, y) = if ratio > TARGET {
+        let cw = ((h as f32 * TARGET).round() as u32).min(w);
+        (cw, h, (w - cw) / 2, 0)
     } else {
-        theme.bg_card
+        let ch = ((w as f32 / TARGET).round() as u32).min(h);
+        let offset = h.saturating_sub(ch);
+        let y = (offset as f32 * TOP_BIAS).round() as u32;
+        (w, ch, 0, y)
     };
-    let mut block = Block::default().style(Style::default().bg(bg));
+    img.crop_imm(x, y, cw, ch)
+}
+
+/// Build a panel that separates content with a background color block
+/// (opencode style) instead of strong border lines. A faint title row sits
+/// at the top inside the panel. Focus is expressed by a thin highlighted
+/// outline (border_focused), never by brightening the whole block: unfocused
+/// panels draw their "border" in the panel's own background color so it
+/// stays invisible and only the focused panel shows an outline.
+pub fn panel_block<'a>(theme: &Theme, title: Option<Line<'a>>, focused: bool) -> Block<'a> {
+    let mut block = Block::default()
+        .style(Style::default().bg(theme.bg_card))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(if focused {
+            theme.border_focused
+        } else {
+            theme.bg_card
+        }));
     if let Some(title) = title {
         block = block.title(title.style(Style::default().fg(theme.fg_muted)));
     }

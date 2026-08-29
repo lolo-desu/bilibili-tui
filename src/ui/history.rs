@@ -6,7 +6,6 @@ use crate::api::client::ApiClient;
 use crate::api::history::{HistoryCursor, HistoryItem, HistoryKey};
 use crate::application::AppAction;
 use crate::storage::Keybindings;
-use image::DynamicImage;
 use ratatui::{
     crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     prelude::*,
@@ -262,7 +261,7 @@ impl HistoryPage {
             let generation = self.generation;
 
             tokio::spawn(async move {
-                if let Some(img) = Self::download_image(&url).await {
+                if let Some(img) = super::download_cover(&url).await {
                     let protocol = picker.new_resize_protocol(img);
                     let _ = tx
                         .send(CoverResult {
@@ -287,12 +286,6 @@ impl HistoryPage {
                 self.items[result.index].cover_protocol = Some(result.protocol);
             }
         }
-    }
-
-    async fn download_image(url: &str) -> Option<DynamicImage> {
-        let response = reqwest::get(url).await.ok()?;
-        let bytes = response.bytes().await.ok()?;
-        image::load_from_memory(&bytes).ok()
     }
 
     fn visible_rows(&self, height: u16) -> usize {
@@ -790,11 +783,15 @@ impl HistoryPage {
         };
 
         let _ = border_color;
-        let mut block = Block::default().style(Style::default().bg(if is_selected {
-            theme.bg_highlight
-        } else {
-            theme.bg_card
-        }));
+        let mut block = Block::default()
+            .style(Style::default().bg(theme.bg_card))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(if is_selected {
+                theme.border_focused
+            } else {
+                theme.bg_card
+            }));
         if is_marked {
             block = block.title(Span::styled(
                 " ✓ 已选择 ",

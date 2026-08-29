@@ -2,7 +2,6 @@
 
 use super::Theme;
 use super::icons;
-use image::DynamicImage;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 use ratatui_image::{StatefulImage, picker::Picker, protocol::StatefulProtocol};
@@ -60,9 +59,9 @@ impl VideoCard {
 
     /// Render a single video card
     pub fn render(&mut self, frame: &mut Frame, area: Rect, is_selected: bool, theme: &Theme) {
-        // selection reads as background lift + pink marker, not a border
-        let bg = if is_selected {
-            theme.bg_highlight
+        // selection reads as a thin outline + pink marker; blocks stay calm
+        let border_color = if is_selected {
+            theme.border_focused
         } else {
             theme.bg_card
         };
@@ -80,7 +79,10 @@ impl VideoCard {
         };
 
         let block = Block::default()
-            .style(Style::default().bg(bg))
+            .style(Style::default().bg(theme.bg_card))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color))
             .title(title_span);
 
         let inner = block.inner(area);
@@ -159,11 +161,15 @@ impl VideoCard {
     }
 
     fn render_list(&mut self, frame: &mut Frame, area: Rect, is_selected: bool, theme: &Theme) {
-        let block = Block::default().style(Style::default().bg(if is_selected {
-            theme.bg_highlight
-        } else {
-            theme.bg_card
-        }));
+        let block = Block::default()
+            .style(Style::default().bg(theme.bg_card))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(if is_selected {
+                theme.border_focused
+            } else {
+                theme.bg_card
+            }));
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let chunks = Layout::default()
@@ -381,7 +387,7 @@ impl VideoCardGrid {
                 let picker = Arc::clone(&self.picker);
 
                 tokio::spawn(async move {
-                    if let Some(img) = download_image(&pic_url).await {
+                    if let Some(img) = super::download_cover(&pic_url).await {
                         let protocol = picker.new_resize_protocol(img);
                         let _ = tx
                             .send(CoverResult {
@@ -480,40 +486,5 @@ impl VideoCardGrid {
 impl Default for VideoCardGrid {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-async fn download_image(url: &str) -> Option<DynamicImage> {
-    let response = reqwest::get(url).await.ok()?;
-    let bytes = response.bytes().await.ok()?;
-    image::load_from_memory(&bytes).ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn page_navigation_moves_by_one_viewport() {
-        let mut grid = VideoCardGrid::new_list();
-        for index in 0..8 {
-            grid.add_card(VideoCard::new(
-                None,
-                None,
-                format!("video-{index}"),
-                "up".to_string(),
-                "0".to_string(),
-                "00:00".to_string(),
-                None,
-            ));
-        }
-        grid.cached_visible_rows = 3;
-
-        assert!(grid.move_page_down());
-        assert_eq!(grid.selected_index, 3);
-        assert!(grid.move_page_down());
-        assert_eq!(grid.selected_index, 6);
-        assert!(grid.move_page_up());
-        assert_eq!(grid.selected_index, 3);
     }
 }

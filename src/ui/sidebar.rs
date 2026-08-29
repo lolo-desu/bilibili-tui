@@ -121,7 +121,6 @@ impl Sidebar {
                     Style::default()
                         .fg(theme.bilibili_pink)
                         .add_modifier(Modifier::BOLD)
-                        .bg(theme.bg_highlight)
                 } else {
                     Style::default().fg(theme.fg_secondary)
                 };

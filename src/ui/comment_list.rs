@@ -711,7 +711,8 @@ impl CommentList {
         self.avatars.request(authors);
         self.avatars.poll();
 
-        // background layer per line: selection highlight
+        // selection = thin highlighted outline around the selected comment
+        // block (never a filled highlight block)
         for (i, entry) in self.entries.iter().enumerate() {
             let rel_start = entry.start_line.saturating_sub(self.scroll);
             if rel_start >= viewport {
@@ -732,10 +733,23 @@ impl CommentList {
                 width: area.width,
                 height,
             };
-            frame.render_widget(
-                Block::default().style(Style::default().bg(theme.bg_highlight)),
-                rect,
-            );
+            if height >= 2 {
+                frame.render_widget(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(theme.border_focused)),
+                    rect,
+                );
+            } else {
+                // single visible row: underline only
+                frame.render_widget(
+                    Block::default()
+                        .borders(Borders::BOTTOM)
+                        .border_style(Style::default().fg(theme.border_focused)),
+                    rect,
+                );
+            }
         }
 
         // draw entries
@@ -750,7 +764,8 @@ impl CommentList {
             }
             let row = area.y + rel as u16;
             let is_selected = i == self.selected_entry;
-            let sel_style = Style::default().bg(theme.bg_highlight);
+            // outline is drawn separately; rows keep the panel background
+            let sel_style = Style::default();
 
             // Avatar first (needs &mut self for protocol render state)
             if entry.kind == EntryKind::Comment && avatars_supported {
