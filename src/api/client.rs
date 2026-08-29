@@ -1204,8 +1204,53 @@ impl ApiClient {
             .ok_or_else(|| anyhow::anyhow!("No data in add comment response"))
     }
 
-    /// Like or unlike a comment (点赞/取消点赞评论)
-    /// - `action`: true = like, false = unlike
+    /// Follows or unfollows an UP. `up` selects follow vs unfollow.
+    pub async fn follow_up(&self, mid: i64, up: bool) -> Result<()> {
+        let url = self.build_url(BilibiliApiDomain::Main, "/x/relation/modify");
+
+        let form_data = vec![
+            ("fid", mid.to_string()),
+            ("act", if up { "1" } else { "2" }.to_string()),
+            ("re_src", "11".to_string()),
+        ];
+
+        let resp: ApiResponse<serde_json::Value> = self.post(&url, form_data).await?;
+        if resp.code != 0 {
+            return Err(anyhow::anyhow!("follow failed: {}", resp.message));
+        }
+        Ok(())
+    }
+
+    /// The logged-in user's own mid, if credentials are set.
+    fn own_mid(&self) -> Option<i64> {
+        let cookies = self.cookies.read().expect("cookies lock poisoned");
+        let cookie = cookies.as_ref()?;
+        let pos = cookie.find("DedeUserID=")?;
+        let rest = &cookie[pos + "DedeUserID=".len()..];
+        let end = rest.find(';').unwrap_or(rest.len());
+        rest[..end].trim().parse::<i64>().ok()
+    }
+
+    /// Whether the logged-in user follows `mid` (relation between users).
+    pub async fn is_following(&self, mid: i64) -> Result<bool> {
+        if self.own_mid().is_none() {
+            anyhow::bail!("not logged in");
+        }
+        let url = self.build_url(BilibiliApiDomain::Main, &format!("/x/relation?fid={mid}"));
+        let resp: ApiResponse<serde_json::Value> = self.get(&url).await?;
+        if resp.code != 0 {
+            return Ok(false);
+        }
+        // attribute 0 == normal follow; 2 == special; 6 == quietly followed
+        let attr = resp
+            .data
+            .as_ref()
+            .and_then(|d| d.get("attribute"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(-1);
+        Ok((0..=6).contains(&attr))
+    }
+
     pub async fn like_comment(
         &self,
         oid: i64,

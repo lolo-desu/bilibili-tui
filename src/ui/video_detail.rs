@@ -40,6 +40,12 @@ pub struct VideoDetailPage {
     pub loading_more_comments: bool,
     /// Floor-page turn that needs a server fetch first (comment_index, dir).
     pub pending_reply_page: Option<(usize, i32)>,
+    /// UP avatar/follower info for the video info header.
+    pub up_avatar: crate::ui::comment_list::AvatarLoader,
+    pub up_follower: Option<i64>,
+    /// Whether the logged-in user follows this UP (None = unknown).
+    pub following: Option<bool>,
+    pub follow_in_flight: bool,
     pub liked_comments: HashSet<i64>,
     pub input_mode: bool,
     pub input_buffer: String,
@@ -56,8 +62,8 @@ pub struct VideoDetailPage {
 
 impl VideoDetailPage {
     pub fn new(bvid: String, aid: i64) -> Self {
-        let mut related_card_grid = VideoCardGrid::new();
-        related_card_grid.columns = 2;
+        let mut related_card_grid = VideoCardGrid::new_list();
+        related_card_grid.columns = 1;
         related_card_grid.card_height = 8;
 
         Self {
@@ -74,6 +80,10 @@ impl VideoDetailPage {
             focus: DetailFocus::Comments,
             loading_more_comments: false,
             pending_reply_page: None,
+            up_avatar: crate::ui::comment_list::AvatarLoader::new(),
+            up_follower: None,
+            following: None,
+            follow_in_flight: false,
             liked_comments: HashSet::new(),
             input_mode: false,
             input_buffer: String::new(),
@@ -125,6 +135,18 @@ impl VideoDetailPage {
         match api_client.get_video_info(&self.bvid).await {
             Ok(info) => {
                 self.comment_list.uploader_mid = Some(info.owner.mid);
+                // UP header extras: avatar + follower count (best effort)
+                let face = info.owner.face.clone();
+                let mid = info.owner.mid;
+                let name = info.owner.name.clone();
+                self.up_avatar
+                    .request(std::iter::once(((Some(mid), name.clone()), Some(face))));
+                if let Ok(stat) = api_client.get_relation_stat(mid).await {
+                    self.up_follower = stat.follower;
+                }
+                if let Ok(following) = api_client.is_following(mid).await {
+                    self.following = Some(following);
+                }
                 self.video_info = Some(info);
             }
             Err(e) => {
@@ -318,6 +340,7 @@ impl VideoDetailPage {
     /// Poll for completed related video cover downloads
     pub fn poll_cover_results(&mut self) {
         self.related_card_grid.poll_cover_results();
+        let _ = self.up_avatar.poll();
     }
 
     /// Start background downloads for visible related video covers
@@ -325,7 +348,7 @@ impl VideoDetailPage {
         self.related_card_grid.start_cover_downloads();
     }
 
-    fn render_video_info(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    fn render_video_info(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = panel_block_bg(
             theme,
             Some(Line::from(Span::styled(
@@ -341,14 +364,52 @@ impl VideoDetailPage {
 
         if let Some(ref info) = self.video_info {
             let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(5), Constraint::Min(20)])
+                .split(inner);
+
+            // Avatar cell (5 wide x 4 tall ≈ square glyph aspect)
+            let avatar_area = Rect {
+                x: chunks[0].x,
+                y: chunks[0].y,
+                width: 4.min(chunks[0].width),
+                height: 4.min(chunks[0].height),
+            };
+            let face_key = (Some(info.owner.mid), info.owner.name.clone());
+            // The picker may not be queryable while the page is still loading;
+            // re-request from the render loop until the avatar arrives.
+            if self.up_avatar.get(&face_key).is_none() {
+                self.up_avatar.request(std::iter::once((
+                    face_key.clone(),
+                    Some(info.owner.face.clone()),
+                )));
+            }
+            let avatar_ready = self.up_avatar.get(&face_key).is_some();
+            if avatar_ready && let Some(protocol) = self.up_avatar.get_mut(&face_key) {
+                frame.render_stateful_widget(
+                    ratatui_image::StatefulImage::default()
+                        .resize(ratatui_image::Resize::Crop(None)),
+                    avatar_area,
+                    protocol,
+                );
+            }
+            if !avatar_ready {
+                let ph = Paragraph::new(icons::USER)
+                    .style(Style::default().fg(theme.fg_muted))
+                    .alignment(Alignment::Center);
+                frame.render_widget(ph, avatar_area);
+            }
+
+            // Text column: title / UP line / stats / description
+            let text_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(1), // Title
-                    Constraint::Length(1), // Author
+                    Constraint::Length(1), // UP line (name + hint below moved: hint on its own row)
                     Constraint::Length(1), // Stats
                     Constraint::Min(1),    // Description
                 ])
-                .split(inner);
+                .split(chunks[1]);
 
             // Title
             let title = Paragraph::new(info.title.clone()).style(
@@ -356,9 +417,9 @@ impl VideoDetailPage {
                     .fg(theme.fg_primary)
                     .add_modifier(Modifier::BOLD),
             );
-            frame.render_widget(title, chunks[0]);
+            frame.render_widget(title, text_chunks[0]);
 
-            // Author (hint: press u to open UP home - web-style link affordance)
+            // UP name; the "u 主页" hint lives on its own row below
             let author = Paragraph::new(Line::from(vec![
                 Span::styled("UP ", Style::default().fg(theme.fg_muted)),
                 Span::styled(
@@ -367,9 +428,21 @@ impl VideoDetailPage {
                         .fg(theme.bilibili_blue)
                         .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
                 ),
-                Span::styled("  (u 主页)", Style::default().fg(theme.fg_muted)),
             ]));
-            frame.render_widget(author, chunks[1]);
+            frame.render_widget(author, text_chunks[1]);
+
+            let hint = format!(
+                "u 主页{}",
+                match self.up_follower {
+                    Some(f) => format!("  ·  {} 关注", crate::ui::comment_list::format_count(f)),
+                    None => String::new(),
+                }
+            );
+            let hint = Paragraph::new(Line::from(Span::styled(
+                hint,
+                Style::default().fg(theme.fg_muted),
+            )));
+            frame.render_widget(hint, text_chunks[2]);
 
             // Stats
             let stats = Paragraph::new(Line::from(vec![
@@ -414,20 +487,31 @@ impl VideoDetailPage {
                     Style::default().fg(theme.fg_secondary),
                 ),
             ]));
-            frame.render_widget(stats, chunks[2]);
+            frame.render_widget(stats, text_chunks[3]);
 
-            // Description
-            if let Some(desc) = &info.desc {
-                let char_count = desc.chars().count();
-                let desc_text: String = if char_count > 100 {
-                    desc.chars().take(100).collect::<String>() + "..."
-                } else {
-                    desc.clone()
+            // Follow button pinned to the right edge of the info panel
+            if let Some(owner) = Some(&info.owner) {
+                let _ = owner;
+                let btn = Rect {
+                    x: inner.x + inner.width.saturating_sub(10),
+                    y: inner.y,
+                    width: 9.min(inner.width),
+                    height: 1,
                 };
-                let description = Paragraph::new(desc_text)
-                    .style(Style::default().fg(theme.fg_secondary))
-                    .wrap(Wrap { trim: true });
-                frame.render_widget(description, chunks[3]);
+                let (label, fg, bg) = match self.following {
+                    Some(true) => (" 已关注 ".to_string(), theme.fg_muted, theme.bg_card),
+                    _ => (
+                        " + 关注 ".to_string(),
+                        theme.fg_primary,
+                        theme.bilibili_pink,
+                    ),
+                };
+                let btn_widget = Paragraph::new(Line::from(Span::styled(
+                    label,
+                    Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
+                )))
+                .alignment(Alignment::Center);
+                frame.render_widget(btn_widget, btn);
             }
         } else {
             let loading = Paragraph::new("加载中...")
@@ -465,12 +549,33 @@ impl VideoDetailPage {
                 Span::styled(" (t切换) ", Style::default().fg(theme.fg_muted)),
             ])),
             is_focused,
-            theme.bg_card,
+            theme.bg_secondary, // comments sit one step darker than related
         );
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        self.comment_list.render(frame, inner, theme, is_focused);
+
+        // Gap + faint divider under the panel title, then the list below it.
+        let head = Rect { height: 1, ..inner };
+        let rule = Rect {
+            y: inner.y + 1,
+            height: 1,
+            ..inner
+        };
+        let list_area = Rect {
+            y: inner.y + 2,
+            height: inner.height.saturating_sub(2),
+            ..inner
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "─".repeat(head.width as usize),
+                Style::default().fg(theme.border_subtle),
+            ))),
+            rule,
+        );
+        self.comment_list
+            .render(frame, list_area, theme, is_focused);
     }
 
     fn render_related(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
@@ -492,11 +597,30 @@ impl VideoDetailPage {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
+        // Gap + faint divider under the panel title.
+        let rule = Rect {
+            y: inner.y + 1,
+            height: 1,
+            ..inner
+        };
+        let list_area = Rect {
+            y: inner.y + 2,
+            height: inner.height.saturating_sub(2),
+            ..inner
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "─".repeat(rule.width as usize),
+                Style::default().fg(theme.border_subtle),
+            ))),
+            rule,
+        );
+
         if self.related_card_grid.cards.is_empty() {
             let empty = Paragraph::new("暂无相关视频")
                 .style(Style::default().fg(theme.fg_secondary))
                 .alignment(Alignment::Center);
-            frame.render_widget(empty, inner);
+            frame.render_widget(empty, list_area);
             return;
         }
 
@@ -504,7 +628,7 @@ impl VideoDetailPage {
         self.related_card_grid.selected_index = self.related_scroll;
 
         // Render the video card grid
-        self.related_card_grid.render(frame, inner, theme);
+        self.related_card_grid.render(frame, list_area, theme);
     }
 
     /// Check if video has multiple parts
@@ -773,6 +897,15 @@ impl Component for VideoDetailPage {
             && let Some(info) = &self.video_info
         {
             return Some(AppAction::OpenUpPage(info.owner.mid));
+        }
+        if key == KeyCode::Char('f')
+            && let Some(info) = &self.video_info
+            && !self.follow_in_flight
+        {
+            self.follow_in_flight = true;
+            return Some(AppAction::ToggleFollowUp {
+                mid: info.owner.mid,
+            });
         }
         if keys.matches_play(key) {
             return Some(self.play_action());

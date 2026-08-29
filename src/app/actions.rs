@@ -704,6 +704,21 @@ impl App {
                     page.page_comment_replies(comment_index, 1);
                 }
             }
+            AppAction::ToggleFollowUp { mid } => {
+                let client = self.api_client.clone();
+                if let Page::VideoDetail(page) = &mut self.current_page {
+                    let target = !matches!(page.following, Some(true));
+                    match client.follow_up(mid, target).await {
+                        Ok(()) => {
+                            page.following = Some(target);
+                            page.follow_in_flight = false;
+                        }
+                        Err(_) => {
+                            page.follow_in_flight = false;
+                        }
+                    }
+                }
+            }
             AppAction::LikeCommentAt {
                 oid,
                 comment_index,

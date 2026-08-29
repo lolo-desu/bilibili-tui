@@ -48,6 +48,41 @@ pub struct Sidebar {
     pub selected: NavItem,
 }
 
+/// Shared branding header: Bilibili logo + client tag, rendered by both the
+/// sidebar and the tabs panel so the two columns start at the same height.
+pub fn render_logo(frame: &mut Frame, area: Rect, theme: &Theme) {
+    let brand_lines = vec![
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled(
+                "  ▌",
+                Style::default()
+                    .fg(theme.bilibili_pink)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "B",
+                Style::default()
+                    .fg(theme.bilibili_pink)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "ilibili",
+                Style::default()
+                    .fg(theme.fg_primary)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![Span::styled(
+            "   TUI Client",
+            Style::default()
+                .fg(theme.fg_muted)
+                .add_modifier(Modifier::ITALIC),
+        )]),
+    ];
+    frame.render_widget(Paragraph::new(brand_lines), area);
+}
+
 impl Sidebar {
     pub fn new() -> Self {
         Self {
@@ -63,55 +98,17 @@ impl Sidebar {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        // Split into header and nav items
+        // Split into logo, nav items, footer
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4), // Header with branding
-                Constraint::Length(1), // Separator
+                Constraint::Length(4), // Logo row (mirrored by the tabs panel)
                 Constraint::Min(5),    // Nav items
-                Constraint::Length(1), // Footer separator
                 Constraint::Length(1), // Version
             ])
             .split(inner);
 
-        // Bilibili branding header with modern styling
-        let brand_lines = vec![
-            Line::raw(""),
-            Line::from(vec![
-                Span::styled(
-                    "  ▌",
-                    Style::default()
-                        .fg(theme.bilibili_pink)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    "B",
-                    Style::default()
-                        .fg(theme.bilibili_pink)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    "ilibili",
-                    Style::default()
-                        .fg(theme.fg_primary)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![Span::styled(
-                "   TUI Client",
-                Style::default()
-                    .fg(theme.fg_muted)
-                    .add_modifier(Modifier::ITALIC),
-            )]),
-        ];
-        let brand = Paragraph::new(brand_lines);
-        frame.render_widget(brand, chunks[0]);
-
-        // Separator line with gradient effect
-        let separator =
-            Paragraph::new("  ────────────").style(Style::default().fg(theme.border_subtle));
-        frame.render_widget(separator, chunks[1]);
+        render_logo(frame, chunks[0], theme);
 
         // Nav items with modern block selection indicator
         let items: Vec<ListItem> = NavItem::all()
@@ -135,14 +132,14 @@ impl Sidebar {
 
         let list = List::new(items).highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
-        frame.render_widget(list, chunks[2]);
+        frame.render_widget(list, chunks[1]);
 
         // Version tag so it is easy to tell which build is running
         let version = Paragraph::new(Line::from(Span::styled(
             format!("  v{}", env!("CARGO_PKG_VERSION")),
             Style::default().fg(theme.fg_muted),
         )));
-        frame.render_widget(version, chunks[4]);
+        frame.render_widget(version, chunks[2]);
     }
 
     pub fn next(&mut self) {

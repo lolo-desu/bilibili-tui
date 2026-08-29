@@ -145,6 +145,7 @@ pub fn panel_block_bg<'a>(
     block
 }
 
+/// Like [`panel_block_bg`], but optionally draws a faint divider line under
 /// UI Component trait
 pub trait Component {
     fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, keys: &Keybindings);

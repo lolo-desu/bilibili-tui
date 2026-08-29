@@ -118,6 +118,10 @@ pub enum AppAction {
     PageCommentReplies {
         comment_index: usize,
     },
+    /// Follow/unfollow the UP (video detail header button, key f)
+    ToggleFollowUp {
+        mid: i64,
+    },
     /// Like/unlike comment or reply selected in the web-style comment list
     LikeCommentAt {
         oid: i64,

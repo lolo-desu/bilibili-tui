@@ -12,7 +12,7 @@ use ratatui::{
     prelude::*,
     widgets::*,
 };
-use ratatui_image::{StatefulImage, picker::Picker, protocol::StatefulProtocol};
+use ratatui_image::{Resize, StatefulImage, picker::Picker, protocol::StatefulProtocol};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -58,34 +58,46 @@ pub struct HomePage {
 
 impl HomePage {
     fn draw_sources(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        // Vertical tab strip: selected tab is a full-width pill on the
-        // content surface with a left accent bar (web tab style).
+        // Vertical tab strip: same surface as the sidebar, logo row on top
+        // (aligned with the sidebar header), spaced tab rows below.
         let block = Block::default()
             .style(Style::default().bg(theme.bg_secondary))
-            .borders(Borders::ALL)
+            .borders(Borders::LEFT)
             .border_type(BorderType::Plain)
-            .border_style(Style::default().fg(if self.focus_sources {
-                theme.border_focused
-            } else {
-                theme.bg_secondary
-            }))
-            .title(Line::from(Span::styled(
-                " 首页 ",
-                Style::default().fg(theme.fg_muted),
-            )));
-        let inner = block.inner(area);
+            .border_style(Style::default().fg(theme.border_subtle));
+        let outer = block.inner(area);
         frame.render_widget(block, area);
 
-        for (index, row) in inner.rows().enumerate() {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4), // Logo row (mirrors the sidebar header)
+                Constraint::Min(5),    // Tabs
+            ])
+            .split(outer);
+        super::sidebar::render_logo(frame, rows[0], theme);
+
+        // Two terminal rows per tab keeps them readable without feeling cramped.
+        let mut constraints: Vec<Constraint> = Vec::new();
+        for index in 0..self.source_count() {
+            let _ = index;
+            constraints.push(Constraint::Length(2));
+        }
+        constraints.push(Constraint::Min(0));
+        let tabs = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(rows[1]);
+
+        for (index, tab_area) in tabs.iter().enumerate() {
             if index >= self.source_count() {
                 break;
             }
             let is_selected = index == self.selected_source;
-            let area_row = Rect {
-                x: inner.x,
-                y: row.y,
-                width: inner.width,
+            // Tab pill occupies the upper row; lower row is pure spacing.
+            let pill = Rect {
                 height: 1,
+                ..*tab_area
             };
             let label = self.source_label(index);
             if is_selected {
@@ -104,18 +116,17 @@ impl HomePage {
                             .bg(theme.bg_card),
                     ),
                 ]);
-                // paint the tab pill full width, then the text over it
                 frame.render_widget(
                     Block::default().style(Style::default().bg(theme.bg_card)),
-                    area_row,
+                    pill,
                 );
-                frame.render_widget(Paragraph::new(selected), area_row);
+                frame.render_widget(Paragraph::new(selected), pill);
             } else {
                 let normal = Paragraph::new(Line::from(Span::styled(
                     format!("  {label}"),
                     Style::default().fg(theme.fg_secondary),
                 )));
-                frame.render_widget(normal, area_row);
+                frame.render_widget(normal, pill);
             }
         }
     }
@@ -955,14 +966,13 @@ impl HomePage {
                 .split(inner)
         };
 
-        // Cover area - render with StatefulImage
+        // Cover container: fill it edge-to-edge with a 16:9 center-crop so
+        // every cover shares the same size and aspect ratio.
         let cover_area = card_chunks[0];
         if let Some(cover) = &mut self.videos[video_idx].cover {
-            // Render actual image using StatefulImage
-            let image_widget = StatefulImage::new();
+            let image_widget = StatefulImage::default().resize(Resize::Crop(None));
             frame.render_stateful_widget(image_widget, cover_area, cover);
         } else {
-            // Loading placeholder with spinner animation hint
             let is_pending = self.pending_downloads.contains(&video_idx);
             let placeholder_text = if is_pending {
                 format!("{} 加载中...", icons::TV)
@@ -975,7 +985,8 @@ impl HomePage {
             frame.render_widget(placeholder, cover_area);
         }
 
-        // Video info with enhanced styling
+        // Video info: title block on top, meta rows glued to the bottom edge
+        // (bottom-up: duration/stats on the last line, UP line above it).
         let info_area = card_chunks[1];
         let card = &self.videos[video_idx];
 
@@ -984,25 +995,8 @@ impl HomePage {
         let views = card.video.format_views();
         let duration = card.video.format_duration();
 
-        let max_title_len = (info_area.width as usize).saturating_sub(2);
-        let display_title: String = if title.chars().count() > max_title_len {
-            title
-                .chars()
-                .take(max_title_len.saturating_sub(3))
-                .collect::<String>()
-                + "..."
-        } else {
-            title.to_string()
-        };
-
-        // Multi-styled info text
-        let title_style = if is_selected {
-            Style::default()
-                .fg(theme.fg_primary)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme.fg_secondary)
-        };
+        let title_width = (info_area.width as usize).saturating_sub(2);
+        let title_lines: Vec<String> = Self::wrap_title(title, title_width.max(8), 2);
 
         let meta_style = Style::default().fg(theme.fg_secondary);
 
@@ -1027,24 +1021,81 @@ impl HomePage {
             .and_then(|stat| stat.reply)
             .map(format_count)
             .unwrap_or_else(|| "-".to_string());
-        let info_text = Text::from(vec![
-            Line::from(Span::styled(&display_title, title_style)),
+
+        // bottom-up rows; the list is rendered bottom-anchored below
+        let rows: Vec<Line> = vec![
             Line::from(vec![
-                Span::styled("UP  ", meta_style),
+                Span::styled(format!("▶ {views}"), meta_style),
+                Span::styled(format!("  弹幕 {danmaku}"), meta_style),
+                Span::styled(format!("  评论 {replies}"), meta_style),
+                Span::styled(format!("  {duration}"), Style::default().fg(theme.success)),
+            ]),
+            Line::from(vec![
+                Span::styled("UP ", meta_style),
                 Span::styled(author, Style::default().fg(theme.bilibili_cyan)),
                 Span::styled(format!("  ·  {follower} 关注"), meta_style),
             ]),
-            Line::from(vec![
-                Span::styled(format!("▶ {views}"), meta_style),
-                Span::styled(format!("   弹幕 {danmaku}"), meta_style),
-                Span::styled(format!("   评论 {replies}"), meta_style),
-                Span::styled(format!("   {duration}"), Style::default().fg(theme.success)),
-            ]),
-        ]);
+        ];
 
-        let info = Paragraph::new(info_text).wrap(Wrap { trim: true });
+        let info_lines = info_area.height as usize;
+        let meta_count = rows.len();
+        let title_capacity = info_lines.saturating_sub(meta_count);
+        let title_gap = title_capacity.saturating_sub(title_lines.len().min(title_capacity));
+
+        let mut lines: Vec<Line> = Vec::new();
+        for text in title_lines.iter().take(title_capacity) {
+            lines.push(Line::from(Span::styled(
+                text,
+                if is_selected {
+                    Style::default()
+                        .fg(theme.fg_primary)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.fg_secondary)
+                },
+            )));
+        }
+        for _ in 0..title_gap {
+            lines.push(Line::raw(""));
+        }
+        lines.extend(rows);
+
+        let info = Paragraph::new(lines);
         frame.render_widget(info, info_area);
     }
+
+    /// Word-safe title wrapping with a hard line cap.
+    fn wrap_title(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+        wrap_text_chars(text, width, max_lines)
+    }
+}
+
+/// Character-based greedy wrap with a hard line cap (CJK-friendly).
+fn wrap_text_chars(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+    for ch in text.chars() {
+        if current_len + 1 > width {
+            lines.push(std::mem::take(&mut current));
+            current_len = 0;
+            if lines.len() == max_lines {
+                let mut last = lines.pop().unwrap_or_default();
+                if last.chars().count() + 1 > width {
+                    last.pop();
+                }
+                last.push('…');
+                lines.push(last);
+                return lines;
+            }
+        }
+        current.push(ch);
+        current_len += 1;
+    }
+    if !current.is_empty() || lines.is_empty() {
+        lines.push(current);
+    }
+    lines
 }
 
 fn format_count(value: i64) -> String {

@@ -4,7 +4,7 @@ use super::Theme;
 use super::icons;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
-use ratatui_image::{StatefulImage, picker::Picker, protocol::StatefulProtocol};
+use ratatui_image::{Resize, StatefulImage, picker::Picker, protocol::StatefulProtocol};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -114,7 +114,7 @@ impl VideoCard {
         };
 
         if let Some(ref mut cover) = self.cover {
-            let image_widget = StatefulImage::new();
+            let image_widget = StatefulImage::default().resize(Resize::Crop(None));
             frame.render_stateful_widget(image_widget, centered_cover, cover);
         } else {
             // Modern placeholder with subtle styling
@@ -187,7 +187,11 @@ impl VideoCard {
             .constraints([Constraint::Length(24), Constraint::Min(24)])
             .split(inner);
         if let Some(cover) = self.cover.as_mut() {
-            frame.render_stateful_widget(StatefulImage::new(), chunks[0], cover);
+            frame.render_stateful_widget(
+                StatefulImage::default().resize(Resize::Crop(None)),
+                chunks[0],
+                cover,
+            );
         } else {
             frame.render_widget(
                 Paragraph::new(icons::TV).alignment(Alignment::Center),

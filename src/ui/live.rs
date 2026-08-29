@@ -11,7 +11,7 @@ use ratatui::{
     prelude::*,
     widgets::*,
 };
-use ratatui_image::{StatefulImage, picker::Picker, protocol::StatefulProtocol};
+use ratatui_image::{Resize, StatefulImage, picker::Picker, protocol::StatefulProtocol};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -619,7 +619,7 @@ impl LivePage {
 
         // Render cover image or placeholder
         if let Some(ref mut protocol) = card.cover_image {
-            let image = StatefulImage::new();
+            let image = StatefulImage::default().resize(Resize::Crop(None));
             frame.render_stateful_widget(image, chunks[0], protocol);
         } else {
             let placeholder = Paragraph::new(icons::PLAY)
