@@ -104,7 +104,7 @@ pub fn crop_cover(img: image::DynamicImage) -> image::DynamicImage {
         let y = (offset as f32 * TOP_BIAS).round() as u32;
         (w, ch, 0, y)
     };
-    img.crop_imm(x, y, cw, ch);
+    let img = img.crop_imm(x, y, cw, ch);
     // Normalize every cover to the same pixel size so terminal renders
     // (halfblocks/kitty/...) all occupy a uniform, predictable area.
     const TARGET_W: u32 = 640;
