@@ -1,2 +1,2 @@
 [build]
-target-dir = "D:/cargo-target/bilibili-tui"
+target-dir = "/home/milo/cargo-target/bilibili-tui"

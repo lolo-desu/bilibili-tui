@@ -175,6 +175,7 @@ impl App {
                 config.danmaku.clone(),
                 config.auto_play,
                 config.video_quality,
+                config.home_columns,
             ))),
             Some(s) if s.starts_with("video:") => {
                 let mut it = s[6..].split(',');

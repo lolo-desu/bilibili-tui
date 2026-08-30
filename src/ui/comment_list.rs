@@ -798,6 +798,12 @@ impl CommentList {
     }
 
     /// Selected entry info.
+    /// Entry kind + comment index at the current selection (for key routing).
+    pub fn selected_entry_kind(&self) -> Option<(EntryKind, usize)> {
+        let entry = self.entries.get(self.selected_entry)?;
+        Some((entry.kind, entry.comment_index))
+    }
+
     pub fn selected_entry_info(&self) -> Option<Entry> {
         self.entries.get(self.selected_entry).copied()
     }
@@ -850,10 +856,23 @@ impl CommentList {
                     Some(CommentIntent::CloseSubThread)
                 } else if self.expanded.contains(&comment.rpid) {
                     if entry.reply_index == 2 {
-                        // pager row cycles to the next floor page (wraps)
-                        Some(CommentIntent::PageReplies {
-                            comment_index: entry.comment_index,
-                        })
+                        let total_fetched = self.replies.get(&comment.rpid).map_or(0, |r| r.len());
+                        let has_more_server = comment.reply_count() as usize > total_fetched;
+                        if self
+                            .reply_page_info(comment.rpid)
+                            .is_none_or(|(_, p)| p <= 1)
+                            && has_more_server
+                        {
+                            // single page + server has more: fetch next page
+                            Some(CommentIntent::LoadMoreReplies {
+                                comment_index: entry.comment_index,
+                            })
+                        } else {
+                            // pager row cycles to the next floor page (wraps)
+                            Some(CommentIntent::PageReplies {
+                                comment_index: entry.comment_index,
+                            })
+                        }
                     } else {
                         // reply_index 0 = collapse row
                         Some(CommentIntent::ToggleReplies {
@@ -1645,18 +1664,26 @@ impl CommentList {
                     ));
                 }
                 _ => {
-                    // single page: show load-more from server instead
-                    spans.push(Span::styled(
-                        format!(
-                            "{} 加载更多回复 ",
-                            if self.loading_more_replies {
-                                icons::SPINNER
-                            } else {
-                                icons::DOWNLOAD
-                            }
-                        ),
-                        Style::default().fg(theme.bilibili_blue),
-                    ));
+                    // single page: offer server load-more only when the
+                    // direct reply count really exceeds what we have
+                    if has_more_server {
+                        spans.push(Span::styled(
+                            format!(
+                                "{} 加载更多回复 ",
+                                if self.loading_more_replies {
+                                    icons::SPINNER
+                                } else {
+                                    icons::DOWNLOAD
+                                }
+                            ),
+                            Style::default().fg(theme.bilibili_blue),
+                        ));
+                    } else {
+                        spans.push(Span::styled(
+                            format!("共 {} 条回复", comment.reply_count()),
+                            Style::default().fg(theme.fg_muted),
+                        ));
+                    }
                 }
             }
             if has_more_server {

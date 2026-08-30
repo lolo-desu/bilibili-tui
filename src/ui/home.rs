@@ -285,6 +285,16 @@ impl HomePage {
     /// 初始可见行数回退值（首次渲染前使用）
     const INITIAL_VISIBLE_ROWS: usize = 3;
 
+    pub fn new_with_columns(columns: usize) -> Self {
+        let mut page = Self::new();
+        page.columns = if Self::COLUMN_CHOICES.contains(&columns) {
+            columns
+        } else {
+            Self::DEFAULT_COLUMNS
+        };
+        page
+    }
+
     pub fn new() -> Self {
         // Try to detect terminal graphics protocol (Kitty/Sixel/iTerm2)
         // Fall back to halfblocks if detection fails
@@ -734,12 +744,8 @@ impl Component for HomePage {
         if self.selected_source == 0 {
             return self.search.handle_input(key, keys);
         }
-        if key == KeyCode::Char('[') {
-            self.cycle_columns(-1);
-            return Some(AppAction::None);
-        }
-        if key == KeyCode::Char(']') {
-            self.cycle_columns(1);
+        if key == KeyCode::Char('[') || key == KeyCode::Char(']') {
+            // column count moved to 设置 -> 播放设置; keep keys inert
             return Some(AppAction::None);
         }
         if self.loading {
@@ -1218,15 +1224,14 @@ mod tests {
     }
 
     #[test]
-    fn bracket_keys_cycle_columns_via_input() {
-        let mut page = HomePage::new();
+    fn bracket_keys_are_inert_columns_live_in_settings() {
+        let mut page = HomePage::new_with_columns(2);
         page.focus_sources = false; // grid must have focus
         page.selected_source = 1; // leave the search pane (source 0)
         let keys = Keybindings::default();
         page.handle_input(KeyCode::Char(']'), &keys);
-        assert_eq!(page.columns, 2);
         page.handle_input(KeyCode::Char('['), &keys);
-        assert_eq!(page.columns, 1);
+        assert_eq!(page.columns, 2); // unchanged; managed via 设置
     }
 
     #[test]

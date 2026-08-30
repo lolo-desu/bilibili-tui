@@ -1040,6 +1040,22 @@ impl Component for VideoDetailPage {
             self.input_buffer.clear();
             return Some(AppAction::None);
         }
+        // Left/Right arrows page floor replies of the selected comment.
+        if self.focus == DetailFocus::Comments
+            && !self.comment_list.in_sub_thread()
+            && (key == KeyCode::Left || key == KeyCode::Right)
+        {
+            let Some((kind, ci)) = self.comment_list.selected_entry_kind() else {
+                return Some(AppAction::None);
+            };
+            if kind == EntryKind::Comment
+                && let Some(comment) = self.comment_list.comments.get(ci)
+                && self.comment_list.expanded.contains(&comment.rpid)
+            {
+                return Some(AppAction::PageCommentReplies { comment_index: ci });
+            }
+            return Some(AppAction::None);
+        }
         // 'v': APP-style conversation view of the selected floor reply.
         if key == KeyCode::Char('v')
             && self.focus == DetailFocus::Comments

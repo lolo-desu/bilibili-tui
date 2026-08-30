@@ -56,7 +56,8 @@ impl App {
                 if let Some(cached) = self.cached_home.take() {
                     self.current_page = Page::Home(cached);
                 } else {
-                    self.current_page = Page::Home(HomePage::new());
+                    self.current_page =
+                        Page::Home(HomePage::new_with_columns(self.config.home_columns));
                     self.init_current_page().await;
                 }
             }
@@ -64,7 +65,8 @@ impl App {
                 self.sidebar.select(NavItem::Home);
                 // Clear cache and create fresh home page
                 self.cached_home = None;
-                self.current_page = Page::Home(HomePage::new());
+                self.current_page =
+                    Page::Home(HomePage::new_with_columns(self.config.home_columns));
                 self.init_current_page().await;
             }
             AppAction::SwitchHomeFeed(feed) => {
@@ -95,7 +97,8 @@ impl App {
                     client.set_credentials(&creds);
                 }
                 // Switch to home
-                self.current_page = Page::Home(HomePage::new());
+                self.current_page =
+                    Page::Home(HomePage::new_with_columns(self.config.home_columns));
                 self.init_current_page().await;
             }
             AppAction::PlayVideo {
@@ -440,9 +443,10 @@ impl App {
             AppAction::OpenDynamicDetail(dynamic_id) => {
                 self.save_previous_page();
                 // Cache home page before navigating to dynamic detail
-                if let Page::Home(home_page) =
-                    std::mem::replace(&mut self.current_page, Page::Home(HomePage::new()))
-                {
+                if let Page::Home(home_page) = std::mem::replace(
+                    &mut self.current_page,
+                    Page::Home(HomePage::new_with_columns(self.config.home_columns)),
+                ) {
                     self.cached_home = Some(home_page);
                 }
                 let detail_page = DynamicDetailPage::new(dynamic_id.clone());
@@ -469,7 +473,8 @@ impl App {
                         if let Some(cached) = self.cached_home.take() {
                             self.current_page = Page::Home(cached);
                         } else {
-                            self.current_page = Page::Home(HomePage::new());
+                            self.current_page =
+                                Page::Home(HomePage::new_with_columns(self.config.home_columns));
                             self.init_current_page().await;
                         }
                     }
@@ -522,7 +527,8 @@ impl App {
                         if let Some(cached) = self.cached_home.take() {
                             self.current_page = Page::Home(cached);
                         } else {
-                            self.current_page = Page::Home(HomePage::new());
+                            self.current_page =
+                                Page::Home(HomePage::new_with_columns(self.config.home_columns));
                             self.init_current_page().await;
                         }
                     }
@@ -832,6 +838,7 @@ impl App {
                     self.config.danmaku.clone(),
                     self.config.auto_play,
                     self.config.video_quality,
+                    self.config.home_columns,
                 );
                 self.current_page = Page::Settings(Box::new(page));
             }
@@ -840,7 +847,8 @@ impl App {
                 self.credentials = None;
                 self.api_client.clear_credentials();
                 self.cached_home = None;
-                self.current_page = Page::Home(HomePage::new());
+                self.current_page =
+                    Page::Home(HomePage::new_with_columns(self.config.home_columns));
                 self.init_current_page().await;
             }
             AppAction::LikeComment {
@@ -921,6 +929,10 @@ impl App {
             }
             AppAction::SaveVideoQuality(quality) => {
                 self.config.video_quality = quality;
+                let _ = persistence::save_config(&self.config);
+            }
+            AppAction::SaveHomeColumns(columns) => {
+                self.config.home_columns = columns;
                 let _ = persistence::save_config(&self.config);
             }
             AppAction::SwitchToLive => {
@@ -1123,8 +1135,10 @@ impl App {
         // First, cache home page if we're leaving it
         if matches!(self.current_page, Page::Home(_))
             && self.sidebar.selected != NavItem::Home
-            && let Page::Home(home_page) =
-                std::mem::replace(&mut self.current_page, Page::Home(HomePage::new()))
+            && let Page::Home(home_page) = std::mem::replace(
+                &mut self.current_page,
+                Page::Home(HomePage::new_with_columns(self.config.home_columns)),
+            )
         {
             self.cached_home = Some(home_page);
         }
@@ -1136,7 +1150,8 @@ impl App {
                     if let Some(cached) = self.cached_home.take() {
                         self.current_page = Page::Home(cached);
                     } else {
-                        self.current_page = Page::Home(HomePage::new());
+                        self.current_page =
+                            Page::Home(HomePage::new_with_columns(self.config.home_columns));
                         self.init_current_page().await;
                     }
                 }
@@ -1177,6 +1192,7 @@ impl App {
                         self.config.danmaku.clone(),
                         self.config.auto_play,
                         self.config.video_quality,
+                        self.config.home_columns,
                     )));
                 }
             }
@@ -1189,6 +1205,7 @@ impl App {
                         self.config.danmaku.clone(),
                         self.config.auto_play,
                         self.config.video_quality,
+                        self.config.home_columns,
                     );
                     self.current_page = Page::Settings(Box::new(page));
                 }

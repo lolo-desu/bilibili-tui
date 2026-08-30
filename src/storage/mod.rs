@@ -476,6 +476,13 @@ pub struct AppConfig {
     pub auto_play: bool,
     #[serde(default)]
     pub video_quality: VideoQuality,
+    /// Number of columns in the home grid (persisted; set in settings).
+    #[serde(default = "default_home_columns")]
+    pub home_columns: usize,
+}
+
+fn default_home_columns() -> usize {
+    3
 }
 
 impl Default for AppConfig {
@@ -486,6 +493,7 @@ impl Default for AppConfig {
             danmaku: DanmakuConfig::default(),
             auto_play: true,
             video_quality: VideoQuality::default(),
+            home_columns: default_home_columns(),
         }
     }
 }

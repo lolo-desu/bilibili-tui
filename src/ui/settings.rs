@@ -51,6 +51,7 @@ pub struct SettingsPage {
     pub danmaku: DanmakuConfig,
     pub auto_play: bool,
     pub video_quality: VideoQuality,
+    pub home_columns: usize,
     section_index: usize,
     pub editing_keybind: bool,
     editing_danmaku: bool,
@@ -65,6 +66,7 @@ impl SettingsPage {
         danmaku: DanmakuConfig,
         auto_play: bool,
         video_quality: VideoQuality,
+        home_columns: usize,
     ) -> Self {
         let theme_choices = Theme::available_theme_choices();
         let theme_index = theme_choices
@@ -85,6 +87,7 @@ impl SettingsPage {
             danmaku,
             auto_play,
             video_quality,
+            home_columns,
             section_index: 0,
             editing_keybind: false,
             editing_danmaku: false,
@@ -138,6 +141,7 @@ impl Default for SettingsPage {
             DanmakuConfig::default(),
             true,
             VideoQuality::Best,
+            3,
         )
     }
 }
@@ -370,7 +374,7 @@ impl Component for SettingsPage {
                         (self.selected_danmaku_index + 1).min(Self::DANMAKU_ROWS - 1);
                 }
                 SettingsSection::Playback => {
-                    self.selected_playback_index = (self.selected_playback_index + 1).min(1);
+                    self.selected_playback_index = (self.selected_playback_index + 1).min(2);
                 }
                 SettingsSection::Account => {}
             }
@@ -420,10 +424,26 @@ impl SettingsPage {
     const DANMAKU_ROWS: usize = 9;
 
     fn adjust_playback(&mut self, direction: i32) -> AppAction {
+        const COLUMN_CHOICES: [usize; 3] = [1, 2, 3];
         match self.selected_playback_index {
             0 => {
                 self.auto_play = !self.auto_play;
                 AppAction::SaveAutoPlay(self.auto_play)
+            }
+            1 => {
+                // home grid columns: cycle 1 -> 2 -> 3 -> 1 ...
+                let cur = COLUMN_CHOICES
+                    .iter()
+                    .position(|c| *c == self.home_columns)
+                    .unwrap_or(0);
+                let len = COLUMN_CHOICES.len();
+                let next = if direction >= 0 {
+                    (cur + 1) % len
+                } else {
+                    (cur + len - 1) % len
+                };
+                self.home_columns = COLUMN_CHOICES[next];
+                AppAction::SaveHomeColumns(self.home_columns)
             }
             _ => {
                 self.video_quality = self.video_quality.cycle(direction);
@@ -632,6 +652,7 @@ impl SettingsPage {
                 "进入视频自动播放：{}",
                 if self.auto_play { "开启" } else { "关闭" }
             ),
+            format!("主页列数：{}", self.home_columns),
             format!("默认视频画质：{}", self.video_quality.label()),
         ];
 
@@ -926,6 +947,13 @@ mod tests {
         let action = page.handle_input(KeyCode::Enter, &keys);
         assert!(matches!(action, Some(AppAction::SaveAutoPlay(false))));
 
+        // row 2: home columns cycle 3 -> 1 (wraps) and persist
+        page.handle_input(KeyCode::Char('j'), &keys);
+        let action = page.handle_input(KeyCode::Char('l'), &keys);
+        assert_eq!(page.home_columns, 1);
+        assert!(matches!(action, Some(AppAction::SaveHomeColumns(1))));
+
+        // row 3: video quality
         page.handle_input(KeyCode::Char('j'), &keys);
         let action = page.handle_input(KeyCode::Char('l'), &keys);
         assert_eq!(page.video_quality, VideoQuality::Q4k);

@@ -151,6 +151,7 @@ pub enum AppAction {
     /// Save the auto-play-on-video-open preference.
     SaveAutoPlay(bool),
     SaveVideoQuality(VideoQuality),
+    SaveHomeColumns(usize),
     /// Logout and return to login page
     Logout,
     /// Like or unlike a comment (oid, rpid, comment_type)

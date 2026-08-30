@@ -217,8 +217,12 @@ impl CommentItem {
         }
     }
 
+    /// Direct reply count (`count`). Note `rcount` includes the whole
+    /// sub-tree, which makes "load more" appear even when all direct
+    /// replies are already fetched.
     pub fn reply_count(&self) -> i32 {
-        self.rcount.unwrap_or(0)
+        // `count` = direct replies; fall back to rcount for old payloads
+        self.count.or(self.rcount).unwrap_or(0)
     }
 
     /// Absolute local time like the web player: "2024-03-15 23:51".
