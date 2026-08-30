@@ -665,7 +665,7 @@ impl DynamicDetailPage {
         // Render the current image if loaded
         if let Some(Some(protocol)) = self.image_protocols.get_mut(self.current_image_index) {
             use ratatui_image::{Resize, StatefulImage};
-            let image_widget = StatefulImage::default().resize(Resize::Crop(None));
+            let image_widget = StatefulImage::default().resize(Resize::Scale(None));
             frame.render_stateful_widget(image_widget, inner_area, protocol);
         } else {
             // Show loading text

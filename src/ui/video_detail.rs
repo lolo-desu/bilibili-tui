@@ -580,9 +580,9 @@ impl VideoDetailPage {
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(7), // UP card
-                Constraint::Min(8),    // episodes (if any) or related
-                Constraint::Min(8),    // related
+                Constraint::Length(7),      // UP card
+                Constraint::Percentage(40), // episodes (if any)
+                Constraint::Percentage(60), // related fills the rest
             ])
             .split(area);
 
@@ -590,9 +590,21 @@ impl VideoDetailPage {
 
         if self.has_multiple_pages() {
             self.render_episodes(frame, rows[1], theme);
-            self.render_related(frame, rows[2], theme);
+            // related stretches from below episodes to the window bottom
+            let rest = Rect {
+                y: rows[2].y,
+                height: area.bottom().saturating_sub(rows[2].y),
+                ..rows[2]
+            };
+            self.render_related(frame, rest, theme);
         } else {
-            self.render_related(frame, rows[1], theme);
+            // no episodes: related takes everything below the UP card
+            let rest = Rect {
+                y: rows[1].y,
+                height: area.bottom().saturating_sub(rows[1].y),
+                ..rows[1]
+            };
+            self.render_related(frame, rest, theme);
         }
     }
 
@@ -630,7 +642,7 @@ impl VideoDetailPage {
                 ..cols[0]
             };
             frame.render_stateful_widget(
-                ratatui_image::StatefulImage::default().resize(ratatui_image::Resize::Crop(None)),
+                ratatui_image::StatefulImage::default().resize(ratatui_image::Resize::Scale(None)),
                 avatar_area,
                 protocol,
             );

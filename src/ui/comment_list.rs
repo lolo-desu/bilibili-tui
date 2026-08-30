@@ -1303,16 +1303,14 @@ impl CommentList {
         is_selected: bool,
         sel_style: Style,
     ) {
-        // Floor view: replies indent one step right; a faint vertical line
-        // on the left marks them as children of the parent comment.
-        const REPLY_INDENT: u16 = 2;
-        let line_x = area.x + AVATAR_COLS;
-        let text_x = line_x + REPLY_INDENT + GAP_COLS;
+        // Floor view: replies indent clearly to the right of the parent's
+        // avatar column, no vertical hierarchy line.
+        const REPLY_INDENT: u16 = 4;
+        let text_x = area.x + AVATAR_COLS + REPLY_INDENT + GAP_COLS;
         let text_width = area
             .width
             .saturating_sub(AVATAR_COLS + REPLY_INDENT + GAP_COLS);
         let content_width = text_width.saturating_sub(1) as usize;
-        let _ = line_x;
 
         // Header: name LV (time moves to action row like web)
         let level = reply
@@ -1444,22 +1442,6 @@ impl CommentList {
                     Style::default().fg(theme.bilibili_blue),
                 ));
             }
-            // faint vertical hierarchy line spanning this reply's block
-            let block_h = (1 + line_count + 1) as u16;
-            let rule_y = row.min(area.bottom().saturating_sub(1));
-            let rule_h = block_h.min(area.bottom().saturating_sub(rule_y));
-            let rule = Block::default()
-                .borders(Borders::LEFT)
-                .border_style(Style::default().fg(theme.border_subtle));
-            frame.render_widget(
-                rule,
-                Rect {
-                    x: line_x,
-                    y: rule_y,
-                    width: REPLY_INDENT,
-                    height: rule_h,
-                },
-            );
             let action = Line::from(action_spans).style(if is_selected {
                 sel_style
             } else {
@@ -1490,7 +1472,7 @@ impl CommentList {
         is_selected: bool,
         sel_style: Style,
     ) {
-        const INDENT: u16 = AVATAR_COLS + 2;
+        const INDENT: u16 = AVATAR_COLS + 6;
         let text_x = area.x + INDENT + GAP_COLS;
         let text_width = area.width.saturating_sub(INDENT + GAP_COLS);
         let content_width = text_width.saturating_sub(1) as usize;
@@ -1569,23 +1551,6 @@ impl CommentList {
                 },
             );
         }
-
-        // Faint vertical hierarchy line spanning the whole child block.
-        let block_h = (1 + line_count + 1) as u16;
-        let rule_y = row.min(area.bottom().saturating_sub(1));
-        let rule_h = block_h.min(area.bottom().saturating_sub(rule_y));
-        let rule = Block::default()
-            .borders(Borders::LEFT)
-            .border_style(Style::default().fg(theme.border_subtle));
-        frame.render_widget(
-            rule,
-            Rect {
-                x: area.x + AVATAR_COLS,
-                y: rule_y,
-                width: GAP_COLS + 1,
-                height: rule_h,
-            },
-        );
 
         let action_y = row + 1 + line_count as u16;
         if action_y < area.bottom() {

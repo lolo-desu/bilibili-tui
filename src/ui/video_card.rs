@@ -114,7 +114,7 @@ impl VideoCard {
         };
 
         if let Some(ref mut cover) = self.cover {
-            let image_widget = StatefulImage::default().resize(Resize::Crop(None));
+            let image_widget = StatefulImage::default().resize(Resize::Scale(None));
             frame.render_stateful_widget(image_widget, centered_cover, cover);
         } else {
             // Modern placeholder with subtle styling
@@ -188,7 +188,7 @@ impl VideoCard {
             .split(inner);
         if let Some(cover) = self.cover.as_mut() {
             frame.render_stateful_widget(
-                StatefulImage::default().resize(Resize::Crop(None)),
+                StatefulImage::default().resize(Resize::Scale(None)),
                 chunks[0],
                 cover,
             );

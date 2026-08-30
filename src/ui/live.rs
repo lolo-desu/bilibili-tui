@@ -619,7 +619,7 @@ impl LivePage {
 
         // Render cover image or placeholder
         if let Some(ref mut protocol) = card.cover_image {
-            let image = StatefulImage::default().resize(Resize::Crop(None));
+            let image = StatefulImage::default().resize(Resize::Scale(None));
             frame.render_stateful_widget(image, chunks[0], protocol);
         } else {
             let placeholder = Paragraph::new(icons::PLAY)
