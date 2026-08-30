@@ -28,3 +28,7 @@ rustc-ice-*.txt
 # Nix
 result
 .direnv/
+
+# rust build dirs (any location)
+**/cargo-target/
+CACHEDIR.TAG
